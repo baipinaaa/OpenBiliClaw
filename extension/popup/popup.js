@@ -53,13 +53,11 @@ import {
   describeInitReason,
   describeInitStatusReason,
   describeInitStartError,
-  embeddingRepairStartAccepted,
   initProgressView,
   INIT_EXPECTATION_HINT,
   INIT_RUNNING_HINT,
   INIT_SOURCE_OPTIONS,
   INIT_SOURCE_LOGIN_HINT,
-  shouldAttachEmbeddingPullProgress,
   shouldAttachRunningInitProgress,
   stalenessView,
 } from "./popup-init-control.js";
@@ -114,7 +112,6 @@ import {
   fetchChatTurns,
   fetchConfig,
   discoverConfigModels,
-  fetchEmbeddingRepairStatus,
   fetchHealth,
   fetchInitStatus,
   fetchPendingDelight,
@@ -134,7 +131,6 @@ import {
   markDelightSent,
   openPendingConfirmation,
   probeConfigService,
-  startEmbeddingRepair,
   startInit,
   readCachedConfigSnapshot,
   reconcileContentHistoryPage,
@@ -2089,85 +2085,7 @@ function _renderInitChecklist(status, selected = null) {
       hint.textContent = row.hint;
       li.append(hint);
     }
-    if (row.key === "embedding" && !row.ok) {
-      const pull = row.pull || {};
-      const repair = row.repair || {};
-      if (pull.active) {
-        const wrap = document.createElement("div");
-        wrap.className = "init-embed-pull";
-        const bar = document.createElement("div");
-        bar.className = "init-embed-pull-bar";
-        const fill = document.createElement("div");
-        fill.className = "init-embed-pull-fill";
-        fill.style.width = `${Math.max(1, Math.min(99, Number(pull.pct) || 1))}%`;
-        bar.append(fill);
-        wrap.append(bar);
-        if (pull.label) {
-          const label = document.createElement("p");
-          label.className = "init-embed-pull-label";
-          label.textContent = pull.label;
-          wrap.append(label);
-        }
-        li.append(wrap);
-      } else if (repair.repairable) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "init-repair-btn";
-        btn.textContent = repair.label || "修复向量模型";
-        btn.addEventListener("click", () =>
-          void _handleChecklistEmbeddingRepair(btn, selected),
-        );
-        li.append(btn);
-      }
-    }
     elements.initChecklist.append(li);
-  }
-}
-
-// Start server-side embedding repair and keep the checklist synchronized with
-// the existing init-status progress fields until repair settles.
-async function _handleChecklistEmbeddingRepair(btn, selected = null) {
-  if (!(btn instanceof HTMLButtonElement)) return;
-  btn.disabled = true;
-  btn.textContent = "修复中…";
-  try {
-    const kicked = await startEmbeddingRepair();
-    if (!embeddingRepairStartAccepted(kicked)) {
-      btn.disabled = false;
-      btn.textContent = "重试";
-      const detail =
-        kicked && kicked.status === 403
-          ? "只能在本机操作向量模型修复。"
-          : kicked && kicked.status === 404
-            ? "当前后端版本不支持向量模型修复，请先升级后端。"
-            : kicked && kicked.detail
-              ? kicked.detail
-              : "向量模型修复未能开始，请稍后重试。";
-      setHint(detail, "error");
-      return;
-    }
-  } catch {
-    btn.disabled = false;
-    btn.textContent = "重试";
-    setHint("向量模型修复请求失败，请稍后重试。", "error");
-    return;
-  }
-  for (let i = 0; i < EMBEDDING_REPAIR_POLL_LIMIT; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, EMBEDDING_REPAIR_POLL_MS));
-    let status;
-    try {
-      status = await fetchInitStatus();
-    } catch {
-      continue;
-    }
-    if (!status) continue;
-    _renderInitChecklist(status, selected);
-    const prereq = status.prerequisites || {};
-    if (prereq.embedding_ready) return;
-    const stillPulling =
-      Boolean(prereq.embedding_repair_running) ||
-      prereq.embedding_check === "repairing";
-    if (!stillPulling && i > 1) return;
   }
 }
 
@@ -2624,43 +2542,9 @@ async function handleCancelInitClick() {
   }
 }
 
-function renderEmbeddingPullStatus(status) {
-  renderInitPanelIdle();
-  _renderInitChecklist(status, _readSelectedInitSources());
-}
-
-async function pollEmbeddingPullProgress() {
-  let status;
-  try {
-    status = await fetchInitStatus();
-  } catch {
-    clearInitPolling();
-    initPollTimer = setTimeout(() => void pollEmbeddingPullProgress(), 3000);
-    return;
-  }
-  if (status?.running || status?.initialized) {
-    renderInitProgress(status);
-    if (status.running) {
-      _startInitProgressPoll();
-    } else {
-      clearInitPolling();
-    }
-    return;
-  }
-  renderEmbeddingPullStatus(status);
-  if (shouldAttachEmbeddingPullProgress(status)) {
-    clearInitPolling();
-    initPollTimer = setTimeout(() => void pollEmbeddingPullProgress(), 3000);
-  } else {
-    clearInitPolling();
-  }
-}
-
 // Boot-time re-attach: when the popup opens while a run is already live, the
 // uninitialized branch would otherwise paint the idle panel and never poll
-// (the run started elsewhere, so no click/SSE kicked the poll here). The same
-// applies to a packaged desktop's background bge-m3 pull: it is live work,
-// but it has no guided-init run id or SSE event of its own.
+// (the run started elsewhere, so no click/SSE kicked the poll here).
 async function maybeAttachRunningInitProgress() {
   let status;
   try {
@@ -2669,12 +2553,6 @@ async function maybeAttachRunningInitProgress() {
     return false;
   }
   if (!shouldAttachRunningInitProgress(status)) {
-    if (shouldAttachEmbeddingPullProgress(status)) {
-      renderEmbeddingPullStatus(status);
-      clearInitPolling();
-      initPollTimer = setTimeout(() => void pollEmbeddingPullProgress(), 1200);
-      return true;
-    }
     return false;
   }
   renderInitProgress(status);
@@ -2740,15 +2618,6 @@ async function handleStartInitClick() {
   if (status.running) {
     renderInitProgress(status);
     _startInitProgressPoll();
-    return;
-  }
-
-  // A background bge-m3 pull is not a guided-init run. Keep the CTA idle and
-  // attach the checklist poll instead of treating the pull as a failed init.
-  if (shouldAttachEmbeddingPullProgress(status)) {
-    renderEmbeddingPullStatus(status);
-    clearInitPolling();
-    initPollTimer = setTimeout(() => void pollEmbeddingPullProgress(), 1200);
     return;
   }
 
@@ -9606,7 +9475,6 @@ function bindSettings() {
     "": "留空 = 自动选择",
     openai: "text-embedding-3-small",
     gemini: "gemini-embedding-001",
-    ollama: "bge-m3",
     openai_compatible: "bge-large-en-v1.5",
     dashscope: "qwen3-vl-embedding",
   };
@@ -9614,7 +9482,6 @@ function bindSettings() {
     "": "留空使用默认",
     openai: "留空 = https://api.openai.com/v1",
     gemini: "(Gemini SDK 不需要 base_url)",
-    ollama: "http://localhost:11434/v1",
     openai_compatible: "https://api.together.xyz/v1 / http://localhost:8000/v1",
     dashscope: "留空 = https://dashscope.aliyuncs.com（国际站 dashscope-intl.aliyuncs.com）",
   };
@@ -9633,15 +9500,13 @@ function bindSettings() {
       baseUrlInput.placeholder =
         EMBEDDING_BASE_URL_HINT[provider] ?? "留空使用默认";
     }
-    // Field visibility: ollama doesn't need an api_key; gemini doesn't
-    // use base_url. openai_compatible needs base_url (its whole point);
-    // the api_key may stay empty for a no-auth local gateway.
+    // Field visibility: gemini doesn't use base_url. openai_compatible needs
+    // base_url (its whole point); the api_key may stay empty for a no-auth
+    // self-hosted gateway.
     for (const el of overlay.querySelectorAll("[data-embedding-field]")) {
       const field = el.dataset.embeddingField;
       let visible = true;
-      if (provider === "ollama") {
-        visible = field !== "api_key";
-      } else if (provider === "gemini") {
+      if (provider === "gemini") {
         visible = field !== "base_url";
       }
       el.style.display = visible ? "" : "none";
@@ -10085,7 +9950,6 @@ function bindSettings() {
     requesty: "Requesty",
     api_route: "API Route",
     cheaperinference: "Cheaper Inference",
-    ollama: "Ollama",
     openai_compatible: "OpenAI-compatible",
   };
   const LLM_PROVIDER_DEFAULTS = {
@@ -10098,7 +9962,6 @@ function bindSettings() {
     requesty: { model: "openai/gpt-4o-mini", base_url: "https://router.requesty.ai/v1" },
     api_route: { model: "gpt-5.5", base_url: "https://global.api-route.com/v1" },
     cheaperinference: { model: "gpt-5.4-mini", base_url: "https://api.cheaperinference.com/v1" },
-    ollama: { model: "qwen2.5:7b", base_url: "http://127.0.0.1:11434/v1" },
     openai_compatible: { model: "", base_url: "" },
   };
   const LLM_MODEL_DISCOVERY_PROVIDERS = new Set([
@@ -10109,7 +9972,6 @@ function bindSettings() {
     "requesty",
     "api_route",
     "cheaperinference",
-    "ollama",
     "openai_compatible",
   ]);
   const LLM_MODULE_LABELS = {
@@ -10145,7 +10007,6 @@ function bindSettings() {
         http_referer: String(rawInstance.http_referer || ""),
         x_title: String(rawInstance.x_title || ""),
         reasoning_effort: String(rawInstance.reasoning_effort || ""),
-        num_ctx: parseInt(rawInstance.num_ctx, 10) || 0,
       };
     }
     const defaultChain = Array.from(new Set(
@@ -10504,9 +10365,6 @@ function bindSettings() {
       reasoning_effort: ["openai", "claude", "gemini", "deepseek", "openrouter", "orcarouter", "openai_compatible"].includes(providerType)
         ? getVal("cfgLlmInstanceReasoning").trim()
         : "",
-      num_ctx: providerType === "ollama"
-        ? Math.max(0, getInt("cfgLlmInstanceNumCtx", 0))
-        : 0,
     };
     return {
       instanceId,
@@ -10576,7 +10434,6 @@ function bindSettings() {
         (kind === "openai-auth" && providerType === "openai")
         || (kind === "openai-protocol" && ["openai", "openai_compatible"].includes(providerType))
         || (kind === "reasoning" && ["openai", "claude", "gemini", "deepseek", "openrouter", "orcarouter", "openai_compatible"].includes(providerType))
-        || (kind === "ollama" && providerType === "ollama")
         || (kind === "openrouter" && providerType === "openrouter");
       field.hidden = !visible;
     });
@@ -10648,7 +10505,6 @@ function bindSettings() {
     setVal("cfgLlmInstanceAuthMode", instance?.auth_mode || "api_key");
     setVal("cfgLlmInstanceApiFlavor", instance?.api_flavor || "");
     setVal("cfgLlmInstanceReasoning", instance?.reasoning_effort || "");
-    setVal("cfgLlmInstanceNumCtx", instance?.num_ctx || 0);
     setVal("cfgLlmInstanceReferer", instance?.http_referer || "");
     setVal("cfgLlmInstanceTitle", instance?.x_title || "");
     const error = document.getElementById("cfgLlmInstanceFormError");
@@ -10717,7 +10573,7 @@ function bindSettings() {
     const effectiveKey = checked("cfgLlmInstanceClearApiKey")
       ? ""
       : typedKey || current.api_key || "";
-    const keyOptional = ["ollama", "gemini"].includes(providerType)
+    const keyOptional = providerType === "gemini"
       || (providerType === "openai" && authMode === "codex_oauth");
     if (enabled && !keyOptional && !effectiveKey) {
       fail("启用的远端实例需要 API Key。", "cfgLlmInstanceApiKey");
@@ -10744,7 +10600,6 @@ function bindSettings() {
       reasoning_effort: ["openai", "claude", "gemini", "deepseek", "openrouter", "orcarouter", "openai_compatible"].includes(providerType)
         ? getVal("cfgLlmInstanceReasoning")
         : "",
-      num_ctx: providerType === "ollama" ? Math.max(0, getInt("cfgLlmInstanceNumCtx", 0)) : 0,
     };
     if (enabled && !state.llmDraft.default_chain.length) {
       state.llmDraft.default_chain.push(instanceId);
@@ -10890,8 +10745,6 @@ function bindSettings() {
     setVal("cfgDeepseekBaseUrl", cfg.llm?.deepseek?.base_url);
     const deepseekReasoning = document.getElementById("cfgDeepseekReasoning");
     if (deepseekReasoning) deepseekReasoning.value = cfg.llm?.deepseek?.reasoning_effort || "";
-    setVal("cfgOllamaModel", cfg.llm?.ollama?.model);
-    setVal("cfgOllamaBaseUrl", cfg.llm?.ollama?.base_url);
     setVal("cfgOpenrouterKey", cfg.llm?.openrouter?.api_key);
     setVal("cfgOpenrouterModel", cfg.llm?.openrouter?.model);
     setVal("cfgOpenrouterBaseUrl", cfg.llm?.openrouter?.base_url);
@@ -12503,129 +12356,6 @@ function bindSettings() {
 // is still disabled.
 const EMBEDDING_BANNER_DISMISS_KEY = "embeddingBannerDismissed";
 
-// Repair polling: a bge-m3 pull is ~568MB, so allow up to 20 minutes. The
-// pull continues server-side even if the panel closes; the banner's
-// auto-refresh clears it once embedding recovers.
-const EMBEDDING_REPAIR_POLL_MS = 1_500;
-const EMBEDDING_REPAIR_POLL_LIMIT = Math.ceil((20 * 60 * 1_000) / EMBEDDING_REPAIR_POLL_MS);
-
-function formatRepairProgress(repair) {
-  if (repair && repair.total > 0) {
-    const pct = Math.min(99, Math.round((repair.completed / repair.total) * 100));
-    return `拉取中 ${pct}%`;
-  }
-  return "拉取中…";
-}
-
-// Wait for the server-side pull to finish, mirroring progress onto the
-// button. Returns the final repair state (or null if the backend vanished).
-async function waitForEmbeddingRepair(enableBtn) {
-  for (let i = 0; i < EMBEDDING_REPAIR_POLL_LIMIT; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, EMBEDDING_REPAIR_POLL_MS));
-    const repair = await fetchEmbeddingRepairStatus();
-    if (!repair) return null;
-    if (repair.done) return repair;
-    if (enableBtn) enableBtn.textContent = formatRepairProgress(repair);
-  }
-  return { done: false, ok: false, error: "拉取超时" };
-}
-
-async function enableLocalOllamaEmbedding(enableBtn) {
-  const failBtn = (label) => {
-    if (enableBtn) {
-      enableBtn.disabled = false;
-      enableBtn.textContent = label;
-    }
-  };
-  if (enableBtn) {
-    enableBtn.disabled = true;
-    enableBtn.textContent = "启用中…";
-  }
-  try {
-    await updateConfig({
-      llm: {
-        embedding: {
-          provider: "ollama",
-          model: "bge-m3",
-          // Don't hardcode base_url: Docker deployments use
-          // http://ollama:11434/v1 (sidecar), local deployments use
-          // the default http://localhost:11434/v1.  Omitting it
-          // preserves whatever the backend already has configured.
-        },
-      },
-    });
-    // Re-check: hot-reload rebuilds the embedding service in-process and
-    // /api/health probes it live, so embedding_ready only flips true once
-    // Ollama actually serves a vector. Don't claim success on a config
-    // write alone.
-    let health = await fetchHealth();
-    const banner = document.getElementById("embeddingBanner");
-    if (health && health.embedding_ready) {
-      if (banner) banner.hidden = true;
-      setHint("已启用本地 Ollama 语义去重，重复内容会少很多。", "success");
-      return;
-    }
-    // Not ready → let the backend classify the cause and, when the fix is
-    // "pull the model", do it server-side with real progress (v0.3.155+).
-    const kicked = await startEmbeddingRepair();
-    if (kicked.status === 409 && kicked.error === "not_running") {
-      failBtn("重试");
-      setHint(kicked.detail || "Ollama 没有在运行，请先启动 Ollama（或运行 `ollama serve`）。", "error");
-      return;
-    }
-    if (kicked.status === 409 && kicked.error === "unsupported_provider") {
-      failBtn("重试");
-      setHint(kicked.detail || "一键修复只支持本地 Ollama embedding。", "error");
-      return;
-    }
-    if (kicked.status === 409 && kicked.error !== "already_running" && kicked.detail) {
-      failBtn("重试");
-      setHint(kicked.detail, "error");
-      return;
-    }
-    if (kicked.status === 403) {
-      failBtn("重试");
-      setHint("只能在本机操作 embedding 修复；请在装有后端的电脑上打开扩展。", "error");
-      return;
-    }
-    if (
-      kicked.status === 202 ||
-      kicked.already_ok ||
-      (kicked.status === 409 && kicked.error === "already_running")
-    ) {
-      if (!kicked.already_ok) {
-        setHint("正在拉取 bge-m3（约 568MB）。关闭面板下载也会继续。");
-        const repair = await waitForEmbeddingRepair(enableBtn);
-        if (repair && repair.done && !repair.ok) {
-          failBtn("重试");
-          setHint(`bge-m3 拉取失败：${repair.error || "未知错误"}`, "error");
-          return;
-        }
-      }
-      // Health TTL is short (3s client / server-side cache expired on
-      // success), so one more read reflects the repaired state.
-      health = await fetchHealth();
-      if (health && health.embedding_ready) {
-        if (banner) banner.hidden = true;
-        setHint("已启用本地 Ollama 语义去重，重复内容会少很多。", "success");
-        return;
-      }
-      failBtn("重试");
-      setHint("模型已就绪但探测还没通过，稍等几秒后重试。", "error");
-      return;
-    }
-    // Older backend without /api/embedding/repair (404) or unreachable (0).
-    failBtn("重试");
-    setHint(
-      "配置已写入，但 Ollama 还没就绪。请确认已运行 `ollama serve` 并 `ollama pull bge-m3`。",
-      "error",
-    );
-  } catch {
-    failBtn("重试");
-    setHint("启用失败，请检查后端连接后重试。", "error");
-  }
-}
-
 async function maybeShowEmbeddingBanner() {
   const banner = document.getElementById("embeddingBanner");
   if (!banner) return;
@@ -12636,12 +12366,7 @@ async function maybeShowEmbeddingBanner() {
     return;
   }
   banner.hidden = false;
-  const enableBtn = document.getElementById("embeddingBannerEnable");
   const dismissBtn = document.getElementById("embeddingBannerDismiss");
-  if (enableBtn && !enableBtn.dataset.bound) {
-    enableBtn.dataset.bound = "1";
-    enableBtn.addEventListener("click", () => void enableLocalOllamaEmbedding(enableBtn));
-  }
   if (dismissBtn && !dismissBtn.dataset.bound) {
     dismissBtn.dataset.bound = "1";
     dismissBtn.addEventListener("click", () => {

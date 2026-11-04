@@ -49,8 +49,8 @@ def _build_app(
         monkeypatch.setenv("OPENBILICLAW_API_AUTH_PASSWORD", env_password)
     cfg = Config()
     cfg.scheduler.enabled = False
-    cfg.llm.default_provider = "ollama"
-    cfg.llm.ollama.model = "llama3"
+    cfg.llm.default_provider = "deepseek"
+    cfg.llm.deepseek.api_key = "test-key"
     cfg.api.auth.enabled = enabled
     cfg.api.auth.session_secret = session_secret
     cfg.api.auth.session_ttl_hours = session_ttl_hours
@@ -1130,7 +1130,7 @@ def test_plaintext_password_survives_unrelated_save_without_revocation(
     monkeypatch.setenv("OPENBILICLAW_PROJECT_ROOT", str(project_root))
     (project_root / "config.toml").write_text(
         f'[api.auth]\nenabled = true\npassword = "secret"\nsession_secret = "{_SECRET}"\n'
-        '\n[llm]\ndefault_provider = "ollama"\n\n[llm.ollama]\nmodel = "llama3"\n',
+        '\n[llm]\ndefault_provider = "deepseek"\n\n[llm.deepseek]\napi_key = "test-key"\n',
         encoding="utf-8",
     )
     db = Database(tmp_path / "auth.db")
@@ -1198,7 +1198,7 @@ def test_admin_shadowed_change_does_not_create_config_when_absent(tmp_path, monk
     # auth lives ONLY in config.local.toml; there is no config.toml
     (project_root / "config.local.toml").write_text(
         f'[api.auth]\nenabled = true\npassword = "localpw"\nsession_secret = "{_SECRET}"\n'
-        '\n[llm]\ndefault_provider = "ollama"\n\n[llm.ollama]\nmodel = "llama3"\n',
+        '\n[llm]\ndefault_provider = "deepseek"\n\n[llm.deepseek]\napi_key = "test-key"\n',
         encoding="utf-8",
     )
     assert not (project_root / "config.toml").exists()

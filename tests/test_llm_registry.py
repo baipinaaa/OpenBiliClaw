@@ -25,7 +25,6 @@ from openbiliclaw.llm.base import (
 )
 from openbiliclaw.llm.gemini_provider import gemini_sdk_available
 from openbiliclaw.llm.registry import (
-    RegistryBuildError,
     build_embedding_service,
     build_llm_registry,
 )
@@ -74,14 +73,14 @@ def test_build_llm_registry_registers_available_providers() -> None:
             default_provider="openai",
             openai=LLMProviderConfig(api_key="openai-key"),
             deepseek=LLMProviderConfig(api_key="deepseek-key"),
-            ollama=LLMProviderConfig(model="llama3"),
+            gemini=LLMProviderConfig(api_key="gemini-key"),
         )
     )
 
     registry = build_llm_registry(config)
 
     assert registry.default_provider == "openai"
-    assert registry.available_providers == ["openai", "deepseek", "ollama"]
+    assert registry.available_providers == ["openai", "gemini", "deepseek"]
 
 
 def test_build_llm_registry_passes_deepseek_base_url_through() -> None:
@@ -442,7 +441,7 @@ def test_openai_compatible_embedding_allows_no_auth_local_endpoint(tmp_path) -> 
             openai=LLMProviderConfig(api_key="sk-chat"),
             embedding=EmbeddingConfig(
                 provider="openai_compatible",
-                model="bge-m3",
+                model="custom-embed-v2",
                 api_key="",
                 base_url="http://127.0.0.1:8000/v1",
             ),
@@ -473,7 +472,7 @@ def test_openai_embedding_custom_base_url_allows_empty_key(tmp_path) -> None:
             openai=LLMProviderConfig(api_key="sk-chat"),
             embedding=EmbeddingConfig(
                 provider="openai",
-                model="bge-m3",
+                model="custom-embed-v2",
                 api_key="",
                 base_url="http://localhost:9000/v1",
             ),
@@ -553,7 +552,7 @@ def test_build_llm_registry_downgrades_default_provider() -> None:
         llm=LLMConfig(
             default_provider="claude",
             openai=LLMProviderConfig(api_key="openai-key"),
-            ollama=LLMProviderConfig(model="llama3"),
+            gemini=LLMProviderConfig(api_key="gemini-key"),
         )
     )
 
@@ -562,250 +561,15 @@ def test_build_llm_registry_downgrades_default_provider() -> None:
     assert registry.default_provider == "openai"
 
 
-def test_build_llm_registry_requires_explicit_ollama_config() -> None:
-    config = Config(
-        llm=LLMConfig(
-            default_provider="openai",
-            ollama=LLMProviderConfig(model="", base_url=""),
-        )
-    )
-
-    with pytest.raises(RegistryBuildError):
-        build_llm_registry(config)
-
-
-def test_build_llm_registry_does_not_invent_ollama_model_from_base_url() -> None:
-    config = Config(
-        llm=LLMConfig(
-            default_provider="openai",
-            ollama=LLMProviderConfig(model="", base_url="http://localhost:11434/v1"),
-        )
-    )
-
-    with pytest.raises(RegistryBuildError, match="No LLM providers"):
-        build_llm_registry(config)
-
-
-def test_build_llm_registry_does_not_auto_register_ollama_for_embedding(
-    tmp_path,
-) -> None:
-    """Pre-v0.3.32, the chat registry auto-registered Ollama as
-    embedding-only whenever ``[llm.embedding] provider = "ollama"``. That
-    hack existed because embedding pulled its provider via
-    ``registry.get(name)``.
-
-    v0.3.32+ ``build_embedding_service`` constructs its own dedicated
-    Ollama provider directly from ``[llm.embedding]`` (with a back-compat
-    read of ``[llm.ollama]``), so the chat registry no longer needs to
-    carry an embedding-only entry. This test pins both halves of the new
-    contract:
-
-      1. The chat registry stays clean — ``ollama`` is NOT registered
-         when only the embedding section asks for it.
-      2. The embedding service still resolves Ollama and uses the right
-         model — the user's "I want local embedding" preference must
-         survive the refactor.
-    """
-    from openbiliclaw.config import EmbeddingConfig
-
-    config = Config(
-        llm=LLMConfig(
-            default_provider="gemini",
-            gemini=LLMProviderConfig(api_key="test-key", model="gemini-2.0-flash"),
-            ollama=LLMProviderConfig(model="", base_url=""),
-            embedding=EmbeddingConfig(provider="ollama", model="bge-m3"),
-        ),
-        data_dir=str(tmp_path),
-    )
-    registry = build_llm_registry(config)
-
-    # (1) chat registry no longer carries an embedding-only Ollama entry.
-    assert "ollama" not in registry.available_providers
-    assert registry.default_provider == "gemini"
-
-    # (2) embedding still works — it builds its own Ollama provider.
-    service = build_embedding_service(config, registry)
-    assert service is not None
-    assert service._provider.name == "ollama"
-    assert service._model == "bge-m3"
-
-
-def test_build_embedding_service_picks_bge_m3_default_for_ollama(
-    tmp_path,
-) -> None:
-    """When [llm.embedding] provider=ollama and model is empty, the service
-    must use bge-m3 — not the gemini-embedding-001 default — so the
-    install-time wizard's choice actually takes effect."""
-    from openbiliclaw.config import EmbeddingConfig
-
-    config = Config(
-        llm=LLMConfig(
-            default_provider="ollama",
-            ollama=LLMProviderConfig(model="llama3", base_url="http://localhost:11434/v1"),
-            embedding=EmbeddingConfig(provider="ollama", model=""),
-        ),
-        data_dir=str(tmp_path),
-    )
-    registry = build_llm_registry(config)
-    service = build_embedding_service(config, registry)
-    assert service is not None
-    assert service._model == "bge-m3"
-
-
-def test_build_embedding_service_respects_explicit_model_override(
-    tmp_path,
-) -> None:
-    """An explicit [llm.embedding] model wins over the per-provider default."""
-    from openbiliclaw.config import EmbeddingConfig
-
-    config = Config(
-        llm=LLMConfig(
-            default_provider="ollama",
-            ollama=LLMProviderConfig(model="llama3", base_url="http://localhost:11434/v1"),
-            embedding=EmbeddingConfig(provider="ollama", model="custom-embed-v2"),
-        ),
-        data_dir=str(tmp_path),
-    )
-    registry = build_llm_registry(config)
-    service = build_embedding_service(config, registry)
-    assert service is not None
-    assert service._model == "custom-embed-v2"
-
-
-def test_ollama_embedding_with_empty_credentials_uses_local_default_without_warning(
-    tmp_path,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Ollama embedding is local, so empty credentials are not chat
-    credential back-compat.
-    """
-    import logging
-
-    from openbiliclaw.config import EmbeddingConfig
-    from openbiliclaw.llm import registry as registry_mod
-
-    registry_mod._embedding_compat_warned.clear()
-    config = Config(
-        llm=LLMConfig(
-            default_provider="openai",
-            ollama=LLMProviderConfig(model="", base_url=""),
-            embedding=EmbeddingConfig(
-                provider="ollama",
-                model="bge-m3",
-                api_key="",
-                base_url="",
-            ),
-        ),
-        data_dir=str(tmp_path),
-    )
-
-    with caplog.at_level(logging.WARNING, logger="openbiliclaw.llm.registry"):
-        service = build_embedding_service(config, LLMRegistry())
-
-    assert service is not None
-    assert service._provider.name == "ollama"
-    assert service._model == "bge-m3"
-    assert service._provider.base_url == "http://127.0.0.1:11434/v1"
-    assert "back-compat" not in caplog.text.lower()
-
-
-def test_ollama_embedding_without_base_url_uses_local_default(
-    tmp_path,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    import logging
-
-    from openbiliclaw.config import EmbeddingConfig
-    from openbiliclaw.llm import registry as registry_mod
-
-    registry_mod._embedding_compat_warned.clear()
-    config = Config(
-        llm=LLMConfig(
-            default_provider="openai",
-            ollama=LLMProviderConfig(model="", base_url="http://remote-ollama:11434"),
-            embedding=EmbeddingConfig(provider="ollama", model="bge-m3"),
-        ),
-        data_dir=str(tmp_path),
-    )
-
-    with caplog.at_level(logging.WARNING, logger="openbiliclaw.llm.registry"):
-        service = build_embedding_service(config, LLMRegistry())
-
-    assert service is not None
-    assert service._provider.name == "ollama"
-    assert service._provider.base_url == "http://127.0.0.1:11434/v1"
-    assert "back-compat" not in caplog.text.lower()
-
-
 # ---------------------------------------------------------------------------
 # Regression: issue #318 — the packaged Windows desktop build shipped an
 # openai SDK whose vendored httpx wrapper raised from ``aclose()``
-# ("'AsyncHttpxClientWrapper' object has no attribute '_mounts'"). Ollama
+# ("'AsyncHttpxClientWrapper' object has no attribute '_mounts'"). The local
 # embedding inherited OpenAIProvider, so building it constructed an
 # AsyncOpenAI client the embedding path never used; that raise was swallowed
 # by ``build_embedding_service`` and every probe reported "misconfigured"
 # (init 409 forever, recommendation pool permanently empty). Embedding must
 # not depend on the chat SDK at all.
-
-
-def test_ollama_embedding_builds_without_openai_sdk(tmp_path, monkeypatch) -> None:
-    """Building Ollama embedding must not construct an AsyncOpenAI client."""
-    from openbiliclaw.config import EmbeddingConfig
-    from openbiliclaw.llm import openai_provider as openai_provider_mod
-
-    def _broken_async_openai(*args, **kwargs):
-        raise AttributeError("'AsyncHttpxClientWrapper' object has no attribute '_mounts'")
-
-    monkeypatch.setattr(openai_provider_mod, "AsyncOpenAI", _broken_async_openai)
-    config = Config(
-        llm=LLMConfig(
-            default_provider="openai",
-            openai=LLMProviderConfig(api_key="test-key", model="gpt-4o"),
-            embedding=EmbeddingConfig(
-                provider="ollama",
-                model="bge-m3",
-                base_url="http://127.0.0.1:11435/v1",
-            ),
-        ),
-        data_dir=str(tmp_path),
-    )
-
-    service = build_embedding_service(config, LLMRegistry())
-
-    assert service is not None
-    assert service._provider.name == "ollama"
-    assert service._model == "bge-m3"
-    assert service._provider.base_url == "http://127.0.0.1:11435/v1"
-    # No chat SDK client is built, so a broken openai/httpx pair in a packaged
-    # build cannot take embedding down with it.
-    assert not hasattr(service._provider, "_client")
-
-
-def test_embedding_build_failure_is_logged_with_cause(tmp_path, monkeypatch, caplog) -> None:
-    """A failed embedding build must say why instead of silently returning None."""
-    import logging
-
-    from openbiliclaw.config import EmbeddingConfig
-
-    def _boom(*args, **kwargs):
-        raise RuntimeError("simulated provider construction failure")
-
-    monkeypatch.setattr("openbiliclaw.llm.embedding.EmbeddingService", _boom)
-    config = Config(
-        llm=LLMConfig(
-            default_provider="openai",
-            openai=LLMProviderConfig(api_key="test-key", model="gpt-4o"),
-            embedding=EmbeddingConfig(provider="ollama", model="bge-m3"),
-        ),
-        data_dir=str(tmp_path),
-    )
-
-    with caplog.at_level(logging.WARNING, logger="openbiliclaw.llm.registry"):
-        service = build_embedding_service(config, LLMRegistry())
-
-    assert service is None
-    assert "embedding service" in caplog.text.lower()
-    assert "simulated provider construction failure" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -816,52 +580,6 @@ def test_embedding_build_failure_is_logged_with_cause(tmp_path, monkeypatch, cap
 # the backend has no embeddings route, and the call would 404 at runtime.
 # v0.3.19+ uses the ``supports_embedding`` flag and falls back to a
 # provider that actually works.
-
-
-def test_build_embedding_service_falls_back_when_claude_is_default(
-    tmp_path,
-) -> None:
-    """Claude has no embeddings API. When it's the default LLM and the
-    [llm.embedding] section is empty, embedding must transparently fall
-    back to a registered provider that can actually embed (Ollama in this
-    fixture). Previously this returned None and the recommendation
-    pipeline silently lost diversity / dedup."""
-    config = Config(
-        llm=LLMConfig(
-            default_provider="claude",
-            claude=LLMProviderConfig(api_key="claude-key"),
-            ollama=LLMProviderConfig(model="llama3", base_url="http://localhost:11434/v1"),
-            embedding=EmbeddingConfig(fallback_enabled=True, fallback_provider="ollama"),
-        ),
-        data_dir=str(tmp_path),
-    )
-    registry = build_llm_registry(config)
-    service = build_embedding_service(config, registry)
-    assert service is not None, "embedding must fall back, not silently disable"
-    # Ollama wins the fallback chain (ordered: requested → ollama → gemini → openai).
-    assert service._provider.name == "ollama"
-    assert service._model == "bge-m3"
-
-
-def test_build_embedding_service_falls_back_when_deepseek_is_default(
-    tmp_path,
-) -> None:
-    """DeepSeek inherits ``embed`` from OpenAIProvider but its backend has
-    no embeddings route. ``supports_embedding=False`` makes the fallback
-    chain skip it instead of letting the call 404 at runtime."""
-    config = Config(
-        llm=LLMConfig(
-            default_provider="deepseek",
-            deepseek=LLMProviderConfig(api_key="deepseek-key"),
-            ollama=LLMProviderConfig(model="llama3", base_url="http://localhost:11434/v1"),
-            embedding=EmbeddingConfig(fallback_enabled=True, fallback_provider="ollama"),
-        ),
-        data_dir=str(tmp_path),
-    )
-    registry = build_llm_registry(config)
-    service = build_embedding_service(config, registry)
-    assert service is not None
-    assert service._provider.name == "ollama"
 
 
 def test_build_embedding_service_returns_none_with_no_capable_provider(
@@ -918,31 +636,12 @@ def test_build_embedding_service_does_not_borrow_chat_credentials_when_disabled(
     assert service is None
 
 
-def test_ollama_base_url_normalised_to_v1_suffix() -> None:
-    """Older config.example.toml shipped ``base_url = "http://localhost:11434"``
-    (no /v1). The OpenAI SDK then calls ``/chat/completions`` directly,
-    which Ollama 404s — its OpenAI-compat shim lives at /v1. The
-    registry must auto-append /v1 so users with stale configs still work
-    after upgrade. Regression for v0.3.20.1."""
-    config = Config(
-        llm=LLMConfig(
-            default_provider="ollama",
-            ollama=LLMProviderConfig(model="llama3", base_url="http://localhost:11434"),
-        ),
-    )
-    registry = build_llm_registry(config)
-    ollama_provider = registry.get("ollama")
-    assert ollama_provider.base_url.endswith("/v1"), (
-        f"expected /v1 suffix, got {ollama_provider.base_url!r}"
-    )
-
-
 def test_openai_primary_with_default_embedding_model_uses_correct_default(
     tmp_path,
 ) -> None:
     """Pre-v0.3.20.1, config.example.toml hardcoded
     ``[llm.embedding] model = "gemini-embedding-001"`` as the default.
-    For OpenAI / Ollama / DeepSeek primaries that string was wrong —
+    For OpenAI / DeepSeek primaries that string was wrong —
     OpenAI's embeddings endpoint 404s on it. After the fix
     config.example.toml ships ``model = ""`` so the registry's
     per-provider defaults kick in (text-embedding-3-small for OpenAI)."""
@@ -1247,31 +946,6 @@ def test_openai_embedding_dimensions_are_limited_to_embedding_3_models() -> None
     assert compatible_provider._supports_embedding_dimensions("text-embedding-3-small") is False
 
 
-def test_ollama_embedding_cache_model_ignores_unhonored_dimension(tmp_path) -> None:
-    config = Config(
-        llm=LLMConfig(
-            default_provider="ollama",
-            ollama=LLMProviderConfig(
-                model="llama3",
-                base_url="http://localhost:11434/v1",
-            ),
-            embedding=EmbeddingConfig(
-                provider="ollama",
-                model="bge-m3",
-                base_url="http://localhost:11434/v1",
-                output_dimensionality=768,
-            ),
-        ),
-        data_dir=str(tmp_path),
-    )
-
-    service = build_embedding_service(config, build_llm_registry(config))
-
-    assert service is not None
-    assert service._provider.name == "ollama"
-    assert service._cache_model == "bge-m3"
-
-
 def test_embedding_cache_separates_same_text_by_dimension(tmp_path) -> None:
     from openbiliclaw.llm.embedding import EmbeddingCache, EmbeddingService
 
@@ -1495,13 +1169,11 @@ def test_openai_provider_supports_embedding_flag_is_set() -> None:
     fragile ``hasattr(provider, "embed")`` check."""
     from openbiliclaw.llm.claude_provider import ClaudeProvider
     from openbiliclaw.llm.gemini_provider import gemini_sdk_available
-    from openbiliclaw.llm.ollama_provider import OllamaProvider
     from openbiliclaw.llm.openai_provider import DeepSeekProvider, OpenAIProvider
     from openbiliclaw.llm.openrouter_provider import OpenRouterProvider
 
     # Have a working /v1/embeddings backend
     assert OpenAIProvider.supports_embedding is True
-    assert OllamaProvider.supports_embedding is True
 
     # Inherit from OpenAIProvider but their backend has no embeddings route
     assert DeepSeekProvider.supports_embedding is False
@@ -1656,22 +1328,23 @@ async def test_registry_health_check_all() -> None:
         Config(
             llm=LLMConfig(
                 default_provider="openai",
-                fallback_provider="ollama",
+                fallback_provider="deepseek",
                 openai=LLMProviderConfig(api_key="openai-key"),
             )
         ),
         provider_overrides={
             "openai": FakeProvider("openai", health=True),
-            "ollama": FakeProvider("ollama", health=False),
+            "deepseek": FakeProvider("deepseek", health=False),
         },
-        fallback_order=["openai", "ollama"],
+        fallback_order=["openai", "deepseek"],
     )
 
     results = await registry.health_check_all()
 
     assert results["openai"].available is True
     assert results["openai"].is_default is True
-    assert "ollama" not in results
+    assert results["deepseek"].available is False
+    assert results["deepseek"].is_default is False
 
 
 @pytest.mark.asyncio
@@ -1733,15 +1406,15 @@ async def test_registry_complete_provider_uses_exact_provider_and_model() -> Non
 async def test_registry_complete_provider_refuses_embedding_only_provider() -> None:
     registry = LLMRegistry()
     registry.register(FakeProvider("openai"), default=True)
-    ollama = FakeProvider("ollama")
-    registry.register(ollama, chat_capable=False)
+    embedding_only = FakeProvider("embedding-only")
+    registry.register(embedding_only, chat_capable=False)
 
-    assert registry.is_chat_capable("ollama") is False
+    assert registry.is_chat_capable("embedding-only") is False
     assert registry.is_chat_capable("missing") is False
     with pytest.raises(LLMFallbackError):
-        await registry.complete_provider("ollama", [{"role": "user", "content": "hi"}])
+        await registry.complete_provider("embedding-only", [{"role": "user", "content": "hi"}])
 
-    assert ollama.call_count == 0
+    assert embedding_only.call_count == 0
 
 
 @pytest.mark.asyncio
@@ -1764,137 +1437,6 @@ async def test_registry_complete_provider_rate_limit_does_not_fallback(
 
     assert openai.call_count == 0
     assert claude.call_count == 1
-
-
-@pytest.mark.asyncio
-async def test_embedding_only_ollama_is_excluded_from_chat_fallback() -> None:
-    """A legacy/injected embedding-only Ollama must never receive chat.
-
-    Modern embedding no longer uses the chat registry. This deliberately
-    injects the old shape to keep the capability boundary safe for adapters
-    and stale integrations: a primary cloud failure must not cascade into a
-    ``bge-m3`` instance and return 404 from ``/api/chat``.
-    """
-    from openbiliclaw.config import EmbeddingConfig
-
-    cfg = Config(
-        llm=LLMConfig(
-            default_provider="openai",
-            openai=LLMProviderConfig(api_key="openai-key"),
-            # Ollama: NO chat model configured. Empty model + non-default.
-            ollama=LLMProviderConfig(
-                api_key="ollama",
-                model="",  # ← critical: no chat model
-                base_url="http://localhost:11434/v1",
-            ),
-            # Embedding also uses Ollama, matching the historical shape.
-            embedding=EmbeddingConfig(provider="ollama", model="bge-m3"),
-        )
-    )
-
-    openai_fake = FakeProvider("openai", errors=[LLMProviderError("primary failed")])
-    ollama_fake = FakeProvider(
-        "ollama",
-        # If the bug is back, the chain will reach this — and we'd want
-        # to assert that it WASN'T called. We don't queue any responses;
-        # if reached it'd raise IndexError.
-    )
-
-    registry = build_llm_registry(
-        cfg,
-        provider_overrides={"openai": openai_fake, "ollama": ollama_fake},
-    )
-
-    # Sanity: the injected legacy provider is present in the registry.
-    assert "openai" in registry.available_providers
-    assert "ollama" in registry.available_providers
-
-    # ...but the chat fallback should NOT include ollama.
-    chat_chain = registry._fallback_order()
-    assert "ollama" not in chat_chain, (
-        f"embedding-only ollama leaked into chat fallback: {chat_chain}"
-    )
-
-    # End-to-end: chat call with a failing primary should raise the
-    # primary error (not silently fall through to ollama and 404).
-    with pytest.raises(LLMProviderError):
-        await registry.complete([{"role": "user", "content": "hi"}])
-    # Verify ollama was never called.
-    assert ollama_fake.call_count == 0
-
-
-@pytest.mark.asyncio
-async def test_ollama_with_explicit_chat_model_is_chat_capable() -> None:
-    """Counterpart to the embedding-only test: when the user configures
-    [llm.ollama] model = "llama3", Ollama IS chat-capable and SHOULD
-    appear in the chat fallback. (We had to make sure the previous fix
-    didn't accidentally exclude every Ollama from chat.)
-    """
-    cfg = Config(
-        llm=LLMConfig(
-            default_provider="openai",
-            fallback_provider="ollama",
-            openai=LLMProviderConfig(api_key="openai-key"),
-            ollama=LLMProviderConfig(
-                api_key="ollama",
-                model="llama3",  # ← explicit chat model
-                base_url="http://localhost:11434/v1",
-            ),
-        )
-    )
-
-    registry = build_llm_registry(
-        cfg,
-        provider_overrides={
-            "openai": FakeProvider("openai", errors=[LLMProviderError("primary failed")]),
-            "ollama": FakeProvider(
-                "ollama", responses=[LLMResponse(content="ok", provider="ollama")]
-            ),
-        },
-    )
-    chat_chain = registry._fallback_order()
-    assert chat_chain == ["openai", "ollama"]
-
-    response = await registry.complete([{"role": "user", "content": "hi"}])
-    assert response.provider == "ollama"
-
-
-@pytest.mark.asyncio
-async def test_ollama_fallback_without_model_is_not_chat_capable() -> None:
-    """Naming Ollama as fallback must not manufacture a ``llama3`` model."""
-    cfg = Config(
-        llm=LLMConfig(
-            default_provider="openai",
-            fallback_provider="ollama",
-            openai=LLMProviderConfig(api_key="openai-key"),
-            # No explicit chat model: base_url only locates the server.
-            ollama=LLMProviderConfig(
-                api_key="ollama",
-                model="",
-                base_url="http://localhost:11434/v1",
-            ),
-            # Embedding also points at Ollama — this is the exact shape
-            # that used to tag the provider embedding-only.
-            embedding=EmbeddingConfig(provider="ollama", model="bge-m3"),
-        )
-    )
-
-    registry = build_llm_registry(
-        cfg,
-        provider_overrides={
-            "openai": FakeProvider("openai", errors=[LLMProviderError("primary failed")]),
-            "ollama": FakeProvider(
-                "ollama", responses=[LLMResponse(content="ok", provider="ollama")]
-            ),
-        },
-    )
-
-    assert registry.is_chat_capable("ollama") is False
-    assert registry._fallback_order() == ["openai"]
-
-    with pytest.raises(LLMFallbackError):
-        await registry.complete([{"role": "user", "content": "hi"}])
-    assert registry.get("ollama").call_count == 0
 
 
 def test_build_llm_registry_warns_when_fallback_same_as_default(
@@ -1940,37 +1482,6 @@ def test_build_llm_registry_warns_when_fallback_not_registered(
     assert "not registered" in caplog.text
 
 
-def test_build_llm_registry_warns_when_fallback_not_chat_capable(
-    caplog: pytest.LogCaptureFixture,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Registered-but-embedding-only fallback (chat_capable=False) warns.
-
-    `_ollama_is_chat_capable` normally returns True whenever ollama is the
-    fallback provider, so this state is only reachable through drift —
-    patch it to simulate that defensive branch."""
-    import logging
-
-    monkeypatch.setattr(
-        "openbiliclaw.llm.registry._ollama_is_chat_capable",
-        lambda _config: False,
-    )
-    config = Config(
-        llm=LLMConfig(
-            default_provider="openai",
-            fallback_provider="ollama",
-            openai=LLMProviderConfig(api_key="openai-key"),
-            ollama=LLMProviderConfig(model="qwen2.5:7b", base_url="http://localhost:11434"),
-        )
-    )
-
-    with caplog.at_level(logging.WARNING, logger="openbiliclaw.llm.registry"):
-        build_llm_registry(config)
-
-    assert "never be used" in caplog.text
-    assert "not chat-capable" in caplog.text
-
-
 def test_build_llm_registry_healthy_fallback_emits_no_dead_fallback_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -2014,7 +1525,6 @@ def _overseas_config() -> Config:
             openai_compatible=LLMProviderConfig(
                 api_key="compat-key", base_url="https://gw.example.com/v1"
             ),
-            ollama=LLMProviderConfig(model="llama3"),
         )
     )
 
@@ -2050,16 +1560,6 @@ def test_overseas_factories_read_proxy_from_helper(_reset_outbound_proxy: object
     assert deepseek is not None
     assert getattr(deepseek, "_proxy", "") == ""
     assert getattr(deepseek, "_trust_env", True) is False
-
-
-def test_ollama_factory_never_reads_proxy(_reset_outbound_proxy: object) -> None:
-    from openbiliclaw import network
-    from openbiliclaw.llm.registry import _maybe_ollama_provider
-
-    network.set_outbound_proxy("socks5://127.0.0.1:1080")
-    provider = _maybe_ollama_provider(_overseas_config(), {})
-    assert provider is not None
-    assert getattr(provider, "_proxy", "") == ""
 
 
 def test_overseas_factories_no_proxy_when_helper_unset(_reset_outbound_proxy: object) -> None:

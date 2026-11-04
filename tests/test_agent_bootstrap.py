@@ -145,9 +145,9 @@ def test_init_decisions_accept_explicit_source_and_embedding_choices(tmp_path: P
             "--project-dir",
             str(tmp_path),
             "--embedding-provider",
-            "ollama",
+            "gemini",
             "--embedding-model",
-            "bge-m3",
+            "gemini-embedding-001",
             "--no-xhs",
             "--yes-douyin",
             "--no-youtube",
@@ -164,7 +164,9 @@ def test_init_decisions_accept_explicit_source_and_embedding_choices(tmp_path: P
 
 
 def test_init_decisions_accept_existing_embedding_but_still_require_sources(tmp_path: Path) -> None:
-    _write_minimal_config(tmp_path, embedding_provider="ollama", embedding_model="bge-m3")
+    _write_minimal_config(
+        tmp_path, embedding_provider="gemini", embedding_model="gemini-embedding-001"
+    )
     args = bootstrap.build_arg_parser().parse_args(["--project-dir", str(tmp_path)])
 
     decisions = bootstrap.detect_init_decisions(tmp_path, args, embedding_touched=False)
@@ -174,7 +176,9 @@ def test_init_decisions_accept_existing_embedding_but_still_require_sources(tmp_
 
 
 def test_init_decisions_required_for_all_optional_sources(tmp_path: Path) -> None:
-    _write_minimal_config(tmp_path, embedding_provider="ollama", embedding_model="bge-m3")
+    _write_minimal_config(
+        tmp_path, embedding_provider="gemini", embedding_model="gemini-embedding-001"
+    )
     args = bootstrap.build_arg_parser().parse_args(["--project-dir", str(tmp_path)])
 
     decisions = bootstrap.detect_init_decisions(tmp_path, args, embedding_touched=False)
@@ -201,80 +205,6 @@ def test_apply_embedding_config_writes_embedding_owned_credentials(tmp_path: Pat
     assert 'model = "text-embedding-3-small"' in text
     assert 'base_url = "https://embed.example.com/v1"' in text
     assert 'api_key = "sk-embedding"' in text
-
-
-def test_docker_run_rewrites_default_ollama_embedding_to_compose_sidecar(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _write_minimal_config(
-        tmp_path,
-        embedding_provider="",
-        embedding_model="",
-    )
-    args = bootstrap.build_arg_parser().parse_args(
-        [
-            "--project-dir",
-            str(tmp_path),
-            "--mode",
-            "docker",
-            "--skip-start",
-            "--embedding-provider",
-            "ollama",
-            "--embedding-model",
-            "bge-m3",
-            "--no-xhs",
-            "--no-douyin",
-            "--no-youtube",
-        ]
-    )
-    monkeypatch.setattr(
-        bootstrap,
-        "ensure_repo_checkout",
-        lambda project_dir, _repo_url, _branch: project_dir,
-    )
-    monkeypatch.setattr(
-        bootstrap,
-        "ensure_config_toml",
-        lambda _project_dir: tmp_path / "config.toml",
-    )
-
-    returncode = bootstrap.run(args)
-
-    config = bootstrap.read_simple_toml(tmp_path / "config.toml")
-    assert returncode == 0
-    assert config["llm"]["embedding"]["provider"] == "ollama"
-    assert config["llm"]["embedding"]["model"] == "bge-m3"
-    assert config["llm"]["embedding"]["base_url"] == "http://ollama:11434/v1"
-
-
-def test_should_auto_wire_embedding_when_unconfigured_local() -> None:
-    # Flag-driven install that never passed --embedding-* and left embedding
-    # empty → default to local Ollama so dedup isn't silently disabled.
-    assert bootstrap.should_auto_wire_embedding(
-        embedding_provider_arg=None, effective_provider="", mode="local"
-    )
-
-
-def test_should_not_auto_wire_embedding_when_already_configured() -> None:
-    assert not bootstrap.should_auto_wire_embedding(
-        embedding_provider_arg=None, effective_provider="gemini", mode="local"
-    )
-
-
-def test_should_not_auto_wire_embedding_when_explicitly_disabled() -> None:
-    # User passed --embedding-provider "" to deliberately turn embedding off.
-    assert not bootstrap.should_auto_wire_embedding(
-        embedding_provider_arg="", effective_provider="", mode="local"
-    )
-
-
-def test_should_not_auto_wire_embedding_under_docker() -> None:
-    # The container can't reach the host's Ollama at localhost, so wiring it
-    # would just mint a broken config.
-    assert not bootstrap.should_auto_wire_embedding(
-        embedding_provider_arg=None, effective_provider="", mode="docker"
-    )
 
 
 def test_detect_missing_secrets_defaults_to_deepseek_when_provider_absent(tmp_path: Path) -> None:
@@ -361,30 +291,6 @@ def test_detect_missing_secrets_flags_openai_compatible_connection_fields(
         "llm.openai_compatible.base_url",
         "bilibili.cookie",
     ]
-
-
-def test_detect_missing_secrets_flags_ollama_without_chat_model(tmp_path: Path) -> None:
-    (tmp_path / "config.toml").write_text(
-        "\n".join(
-            [
-                "[llm]",
-                'default_provider = "ollama"',
-                "",
-                "[llm.ollama]",
-                'base_url = "http://localhost:11434/v1"',
-                'model = ""',
-                "",
-                "[bilibili]",
-                'cookie = "SESSDATA=test"',
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    status = bootstrap.detect_missing_secrets(tmp_path)
-
-    assert status["missing"] == ["llm.ollama.model"]
 
 
 def test_v2_template_provider_writes_target_one_instance_and_default_chain(
@@ -665,7 +571,7 @@ def test_reuse_config_secrets_copies_remote_provider_model_and_base_url(
     assert target_config["llm"]["openrouter"]["base_url"] == "https://openrouter.ai/api/v1"
 
 
-def test_run_reports_auto_wired_embedding_from_config(
+def test_run_reports_configured_embedding_from_config(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -680,8 +586,8 @@ def test_run_reports_auto_wired_embedding_from_config(
                 'api_key = ""',
                 "",
                 "[llm.embedding]",
-                'provider = ""',
-                'model = ""',
+                'provider = "gemini"',
+                'model = "gemini-embedding-001"',
                 'base_url = ""',
                 "",
                 "[bilibili]",
@@ -712,12 +618,6 @@ def test_run_reports_auto_wired_embedding_from_config(
         "ensure_config_toml",
         lambda _project_dir: tmp_path / "config.toml",
     )
-    monkeypatch.setattr(
-        bootstrap,
-        "ensure_ollama_ready",
-        lambda _models: {"running": True, "pulled": ["bge-m3"]},
-    )
-
     returncode = bootstrap.run(args)
 
     output = capsys.readouterr().out
@@ -732,8 +632,8 @@ def test_run_reports_auto_wired_embedding_from_config(
     assert final["message"] == "skipped_start"
     assert final["details"]["init_decisions"]["embedding"] == {
         "source": "config",
-        "provider": "ollama",
-        "model": "bge-m3",
+        "provider": "gemini",
+        "model": "gemini-embedding-001",
         "explicit": True,
     }
 
@@ -772,7 +672,6 @@ def test_human_install_choice_parser_accepts_numbers_and_aliases() -> None:
     assert bootstrap.resolve_human_llm_choice("cheaperinference") == "cheaperinference"
     assert bootstrap.PROVIDER_MODEL_DEFAULTS["cheaperinference"] == "gpt-5.4-mini"
     assert bootstrap.resolve_human_llm_choice("relay") == "openai_compatible"
-    assert bootstrap.resolve_human_llm_choice("ollama") == "ollama"
     assert bootstrap.resolve_human_llm_choice("bad") is None
 
 
@@ -843,22 +742,6 @@ def test_collect_human_llm_openai_compat_numeric_preset_uses_vendor_defaults() -
     assert answer.llm_model == "kimi-k2.6"
 
 
-def test_collect_human_llm_ollama_needs_no_api_key() -> None:
-    # ollama is off the interactive menu but still accepted by name for
-    # backward-compat / non-interactive installs.
-    plain_inputs = iter(["ollama", "qwen2.5:7b"])
-    secret_prompts: list[str] = []
-    answer = bootstrap.collect_human_llm_config(
-        input_func=lambda _prompt: next(plain_inputs),
-        secret_input_func=lambda prompt: secret_prompts.append(prompt) or "",
-    )
-
-    assert answer.provider == "ollama"
-    assert answer.llm_api_key == ""
-    assert answer.llm_model == "qwen2.5:7b"
-    assert secret_prompts == []
-
-
 def test_collect_human_llm_does_not_reuse_key_across_providers() -> None:
     prompts: list[tuple[str, str]] = []
     plain_inputs = iter(["3", ""])
@@ -900,9 +783,10 @@ def test_collect_human_install_wizard_default_path() -> None:
             "",
             "",
             "",
+            "",
         ]
     )
-    secret_inputs = iter(["sk-deepseek"])
+    secret_inputs = iter(["sk-deepseek", "sk-gemini"])
 
     answer = bootstrap.collect_human_install_wizard(
         input_func=lambda prompt: prompts.append(("plain", prompt)) or next(plain_inputs),
@@ -910,8 +794,8 @@ def test_collect_human_install_wizard_default_path() -> None:
     )
 
     assert answer.provider == "deepseek"
-    assert answer.embedding_provider == "ollama"
-    assert answer.embedding_model == "bge-m3"
+    assert answer.embedding_provider == "gemini"
+    assert answer.embedding_model == "gemini-embedding-001"
     assert answer.bilibili_favorite_limit == 300
     assert answer.bilibili_follow_limit == 100
     assert answer.xhs is False
@@ -926,9 +810,9 @@ def test_collect_human_install_wizard_manual_cookie() -> None:
     plain_inputs = iter(
         [
             "2",  # Traditional Chinese
-            "ollama",
-            "qwen2.5:7b",
-            "3",
+            "gemini",
+            "gemini-embedding-001",
+            "2",
             "120",
             "80",
             "n",
@@ -937,7 +821,7 @@ def test_collect_human_install_wizard_manual_cookie() -> None:
             "manual",
         ]
     )
-    secret_inputs = iter(["SESSDATA=test; bili_jct=test; DedeUserID=1"])
+    secret_inputs = iter(["sk-gemini", "SESSDATA=test; bili_jct=test; DedeUserID=1"])
 
     answer = bootstrap.collect_human_install_wizard(
         input_func=lambda prompt: prompts.append(("plain", prompt)) or next(plain_inputs),
@@ -946,7 +830,7 @@ def test_collect_human_install_wizard_manual_cookie() -> None:
 
     assert answer.language == "zh-Hant"
     assert "Select" in prompts[0][1]
-    assert answer.provider == "ollama"
+    assert answer.provider == "gemini"
     assert answer.embedding_provider == ""
     assert answer.embedding_model == ""
     assert answer.douyin is True
@@ -961,8 +845,8 @@ def test_apply_human_install_answers_sets_all_bootstrap_args(tmp_path: Path) -> 
         provider="deepseek",
         llm_api_key="sk-test",
         llm_model="deepseek-v4-flash",
-        embedding_provider="ollama",
-        embedding_model="bge-m3",
+        embedding_provider="gemini",
+        embedding_model="gemini-embedding-001",
         xhs=False,
         douyin=True,
         youtube=False,
@@ -977,8 +861,8 @@ def test_apply_human_install_answers_sets_all_bootstrap_args(tmp_path: Path) -> 
     assert args.provider == "deepseek"
     assert args.llm_api_key == "sk-test"
     assert args.llm_model == "deepseek-v4-flash"
-    assert args.embedding_provider == "ollama"
-    assert args.embedding_model == "bge-m3"
+    assert args.embedding_provider == "gemini"
+    assert args.embedding_model == "gemini-embedding-001"
     assert args.no_xhs is True
     assert args.yes_douyin is True
     assert args.no_youtube is True
@@ -1062,8 +946,8 @@ def test_run_interactive_confirm_collects_full_human_install_choices(
             provider="deepseek",
             llm_api_key="sk-new",
             llm_model="deepseek-v4-flash",
-            embedding_provider="ollama",
-            embedding_model="bge-m3",
+            embedding_provider="gemini",
+            embedding_model="gemini-embedding-001",
             xhs=False,
             douyin=False,
             youtube=False,
@@ -1071,12 +955,6 @@ def test_run_interactive_confirm_collects_full_human_install_choices(
             bilibili_cookie="SESSDATA=test; bili_jct=test; DedeUserID=1",
         ),
     )
-    monkeypatch.setattr(
-        bootstrap,
-        "ensure_ollama_ready",
-        lambda _models: {"running": True, "pulled": ["bge-m3"]},
-    )
-
     returncode = bootstrap.run(args)
 
     text = (tmp_path / "config.toml").read_text(encoding="utf-8")
@@ -1086,7 +964,7 @@ def test_run_interactive_confirm_collects_full_human_install_choices(
     assert returncode == 0
     assert 'default_provider = "deepseek"' in text
     assert 'api_key = "sk-new"' in text
-    assert 'provider = "ollama"' in text
+    assert 'provider = "gemini"' in text
     assert args.wait_for_extension_cookie is False
     assert "sk-new" not in output
     assert "SESSDATA=test" not in output
@@ -1230,8 +1108,8 @@ def test_run_interactive_confirm_apply_error_returns_interactive_error(
 
 def test_interactive_answers_apply_source_flags() -> None:
     answers = bootstrap.InitConfirmationAnswers(
-        embedding_provider="ollama",
-        embedding_model="bge-m3",
+        embedding_provider="gemini",
+        embedding_model="gemini-embedding-001",
         xhs=False,
         douyin=True,
         youtube=False,
@@ -1245,9 +1123,9 @@ def test_interactive_answers_apply_source_flags() -> None:
 
     assert argv == [
         "--embedding-provider",
-        "ollama",
+        "gemini",
         "--embedding-model",
-        "bge-m3",
+        "gemini-embedding-001",
         "--no-xhs",
         "--yes-douyin",
         "--no-youtube",
@@ -1265,8 +1143,8 @@ def test_collect_interactive_confirmations_collects_bilibili_limits() -> None:
 
     answers = bootstrap.collect_interactive_confirmations(input_func=lambda _prompt: next(inputs))
 
-    assert answers.embedding_provider == "ollama"
-    assert answers.embedding_model == "bge-m3"
+    assert answers.embedding_provider == "gemini"
+    assert answers.embedding_model == "gemini-embedding-001"
     assert answers.bilibili_favorite_limit == 120
     assert answers.bilibili_follow_limit == 80
     assert answers.xhs is False
@@ -1334,8 +1212,8 @@ def test_pre_init_service_checks_pass_when_probe_reports_services_ready(tmp_path
             "llm": {"available": True, "provider": "deepseek", "error": ""},
             "embedding": {
                 "available": True,
-                "provider": "ollama",
-                "model": "bge-m3",
+                "provider": "gemini",
+                "model": "gemini-embedding-001",
                 "error": "",
             },
         }
@@ -1350,7 +1228,7 @@ def test_pre_init_service_checks_pass_when_probe_reports_services_ready(tmp_path
     assert result["available"] is True
     assert result["failed"] == []
     assert result["services"]["llm"]["provider"] == "deepseek"
-    assert result["services"]["embedding"]["provider"] == "ollama"
+    assert result["services"]["embedding"]["provider"] == "gemini"
 
 
 def test_pre_init_service_checks_fail_when_llm_probe_fails(tmp_path: Path) -> None:
@@ -1359,8 +1237,8 @@ def test_pre_init_service_checks_fail_when_llm_probe_fails(tmp_path: Path) -> No
             "llm": {"available": False, "provider": "deepseek", "error": "401 unauthorized"},
             "embedding": {
                 "available": True,
-                "provider": "ollama",
-                "model": "bge-m3",
+                "provider": "gemini",
+                "model": "gemini-embedding-001",
                 "error": "",
             },
         }
@@ -1383,8 +1261,8 @@ def test_pre_init_service_checks_fail_when_embedding_probe_fails(tmp_path: Path)
             "llm": {"available": True, "provider": "deepseek", "error": ""},
             "embedding": {
                 "available": False,
-                "provider": "ollama",
-                "model": "bge-m3",
+                "provider": "gemini",
+                "model": "gemini-embedding-001",
                 "error": "empty embedding vector",
             },
         }
@@ -1431,7 +1309,9 @@ def test_run_blocks_auto_init_when_pre_init_service_check_fails(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _write_minimal_config(tmp_path, embedding_provider="ollama", embedding_model="bge-m3")
+    _write_minimal_config(
+        tmp_path, embedding_provider="gemini", embedding_model="gemini-embedding-001"
+    )
     args = bootstrap.build_arg_parser().parse_args(
         [
             "--project-dir",
@@ -1468,8 +1348,8 @@ def test_run_blocks_auto_init_when_pre_init_service_check_fails(
                 "llm": {"available": True, "provider": "openai", "error": ""},
                 "embedding": {
                     "available": False,
-                    "provider": "ollama",
-                    "model": "bge-m3",
+                    "provider": "gemini",
+                    "model": "gemini-embedding-001",
                     "error": "empty embedding vector",
                 },
             },

@@ -53,7 +53,6 @@ _SUPPORTED_OPENAI_API_FLAVORS = {"", "chat_completions", "responses"}
 # <option> elements).
 _SUPPORTED_EMBEDDING_PROVIDERS = {
     "",
-    "ollama",
     "openai",
     "gemini",
     "openai_compatible",
@@ -73,7 +72,6 @@ _SUPPORTED_CHAT_PROVIDERS = {
     "claude",
     "gemini",
     "deepseek",
-    "ollama",
     "openrouter",
     "orcarouter",
     "openai_compatible",
@@ -89,7 +87,6 @@ _LLM_PROVIDER_DISPLAY_NAMES = {
     "claude": "Claude",
     "gemini": "Gemini",
     "deepseek": "DeepSeek",
-    "ollama": "Ollama",
     "openrouter": "OpenRouter",
     "orcarouter": "OrcaRouter",
     "openai_compatible": "OpenAI-compatible",
@@ -441,15 +438,7 @@ class LLMProviderConfig:
     # honor an explicitly configured non-empty value as an advisory
     # pass-through; configurations that predate that behavior are loaded with
     # an empty value so upgrades do not start sending a new request field.
-    # Ollama ignores this field.
     reasoning_effort: str = "medium"
-    # Ollama-only: context window (tokens). 0 = use Ollama's server default
-    # (usually 4096) via the OpenAI-compat ``/v1`` shim. When >0, chat routes
-    # through Ollama's native ``/api/chat`` so ``options.num_ctx`` actually
-    # applies — the ``/v1`` shim silently ignores it, truncating large batch
-    # prompts and breaking structured-JSON output. Ignored by all other
-    # providers. See OllamaProvider._complete_native.
-    num_ctx: int = 0
 
 
 @dataclass
@@ -606,7 +595,7 @@ class EmbeddingConfig:
     # Optional cover image embedding (image-only vectors in the same space
     # as text). Requires a multimodal embedding model such as
     # gemini-embedding-2 or dashscope qwen3-vl-embedding. Default off so
-    # local bge-m3 / text-only paths pay zero extra cost.
+    # text-only paths pay zero extra cost.
     multimodal_enabled: bool = False
     # L2 persistent cache byte budget (0 = unlimited). When set, the cache
     # evicts inactive/legacy namespaces first, then oldest active rows, once
@@ -654,7 +643,6 @@ class LLMConfig:
     claude: LLMProviderConfig = field(default_factory=LLMProviderConfig)
     gemini: LLMProviderConfig = field(default_factory=LLMProviderConfig)
     deepseek: LLMProviderConfig = field(default_factory=LLMProviderConfig)
-    ollama: LLMProviderConfig = field(default_factory=LLMProviderConfig)
     openrouter: LLMProviderConfig = field(default_factory=LLMProviderConfig)
     # v0.3.32+ generic OpenAI-protocol-compatible provider. Always
     # requires an explicit base_url (otherwise it would just be ``openai``).
@@ -712,7 +700,7 @@ def _legacy_provider_is_visible(
     instances makes an otherwise valid legacy config impossible to save:
     every unused remote template then fails API-key validation. Project only
     providers that legacy routing actually references or that carry usable
-    credentials. Ollama is the credential-free exception.
+    credentials.
     """
     referenced = {
         str(llm.default_provider or "").strip().lower(),
@@ -750,7 +738,7 @@ def _legacy_provider_is_visible(
                 "not projecting it as a legacy instance",
             )
         return False
-    return provider_type == "ollama" and bool(model or str(provider.base_url or "").strip())
+    return False
 
 
 def effective_llm_instances(llm: LLMConfig) -> dict[str, LLMInstanceConfig]:
@@ -1110,8 +1098,8 @@ class NetworkConfig:
     is Cloudflare-fronted and resolves overseas), the GitHub updater, and
     Codex OAuth token refresh. Bangumi's cover CDN (lain.bgm.tv) is overseas
     too but rides the image cache's own ``trust_env`` path rather than this
-    setting. CN-direct clients (bilibili / douyin /
-    ollama / CN-CDN image cache) never consume it — that isolation is pinned
+    setting. CN-direct clients (bilibili / douyin / CN-CDN image cache)
+    never consume it — that isolation is pinned
     by tests/test_network_proxy_isolation.py. This is deliberately distinct
     from ``[bilibili].proxy`` (which routes B站 requests and is rarely set).
 
@@ -1335,7 +1323,6 @@ class AutostartConfig:
     """Boot autostart configuration."""
 
     enabled: bool = False
-    manage_ollama: bool = True
 
 
 @dataclass
@@ -2413,15 +2400,6 @@ def _build_config(
                 instance_id,
             )
             values["enabled"] = False
-        if "num_ctx" in values:
-            try:
-                values["num_ctx"] = max(0, int(values["num_ctx"] or 0))
-            except (TypeError, ValueError):
-                logger.warning(
-                    "config: [llm.instances.%s].num_ctx 非法，已回退为 0",
-                    instance_id,
-                )
-                values["num_ctx"] = 0
         values.setdefault("name", instance_id)
         values.setdefault(
             "provider_type",
@@ -2506,7 +2484,6 @@ def _build_config(
         claude=_provider_config("claude"),
         gemini=_provider_config("gemini"),
         deepseek=_provider_config("deepseek"),
-        ollama=_provider_config("ollama"),
         openrouter=_provider_config("openrouter"),
         openai_compatible=_provider_config("openai_compatible"),
         orcarouter=_provider_config("orcarouter"),
@@ -3228,7 +3205,6 @@ def _build_config(
         discovery=_build_discovery(discovery_raw),
         autostart=AutostartConfig(
             enabled=_coerce_bool(autostart_raw.get("enabled"), default=False),
-            manage_ollama=_coerce_bool(autostart_raw.get("manage_ollama"), default=True),
         ),
         saved_sync=SavedSyncConfig(
             auto_sync_enabled=_coerce_bool(saved_sync_raw.get("auto_sync_enabled"), default=False),
@@ -4767,14 +4743,6 @@ def _collect_llm_instance_routing_issues(llm: LLMConfig) -> list[ConfigIssue]:
                     severity="blocking",
                 )
             )
-        if instance.num_ctx < 0:
-            issues.append(
-                ConfigIssue(
-                    field=f"{field_prefix}.num_ctx",
-                    message="`num_ctx` 不能小于 0。",
-                    severity="blocking",
-                )
-            )
 
         auth_mode = str(instance.auth_mode or "").strip().lower()
         if provider_type == "openai" and auth_mode not in _SUPPORTED_OPENAI_AUTH_MODES:
@@ -5285,7 +5253,7 @@ def _collect_config_issues(config: Config) -> list[ConfigIssue]:
     ):
         normalized = str(emb_value or "").strip().lower()
         if normalized not in _SUPPORTED_EMBEDDING_PROVIDERS:
-            supported = '"", "ollama", "openai", "gemini", "openai_compatible", "dashscope"'
+            supported = '"", "openai", "gemini", "openai_compatible", "dashscope"'
             issues.append(
                 ConfigIssue(
                     field=f"llm.embedding.{emb_field}",
@@ -5407,22 +5375,8 @@ def _collect_config_issues(config: Config) -> list[ConfigIssue]:
                         severity="blocking",
                     )
                 )
-            # Keep in sync with llm/registry.py `_maybe_ollama_provider` /
-            # `_ollama_is_chat_capable` (config cannot import the registry —
-            # cycle). A base URL cannot identify an installed chat model, so
-            # fallback Ollama always requires an explicit model.
-            if fallback_name == "ollama" and not config.llm.ollama.model.strip():
-                issues.append(
-                    ConfigIssue(
-                        field="llm.fallback_provider",
-                        message=(
-                            "备选 provider `ollama` 需要在 `[llm.ollama]` 填 `model` "
-                            "（例如 `qwen2.5:7b`）；仅填写 `base_url` 无法确定聊天模型，"
-                            "fallback 不会生效。"
-                        ),
-                        severity="blocking",
-                    )
-                )
+            # Keep in sync with llm/registry.py (config cannot import the
+            # registry — cycle).
 
     provider_name = config.llm.default_provider
     provider_configs: dict[str, LLMProviderConfig] = {
@@ -5430,7 +5384,6 @@ def _collect_config_issues(config: Config) -> list[ConfigIssue]:
         "claude": config.llm.claude,
         "gemini": config.llm.gemini,
         "deepseek": config.llm.deepseek,
-        "ollama": config.llm.ollama,
         "openrouter": config.llm.openrouter,
         "openai_compatible": config.llm.openai_compatible,
         "orcarouter": config.llm.orcarouter,
@@ -5547,18 +5500,6 @@ def _collect_config_issues(config: Config) -> list[ConfigIssue]:
                     "默认 provider `openai_compatible` 必须填 `base_url` "
                     "(例如 Groq: https://api.groq.com/openai/v1)。"
                 ),
-            )
-        )
-
-    if provider_name == "ollama" and not config.llm.ollama.model.strip():
-        issues.append(
-            ConfigIssue(
-                field="llm.ollama.model",
-                message=(
-                    "默认 provider `ollama` 必须明确填写聊天 `model` "
-                    "（例如 `qwen2.5:7b`）；系统不会再隐式使用 `llama3`。"
-                ),
-                severity="blocking",
             )
         )
 
@@ -6242,8 +6183,7 @@ def _autostart_lines(
 
     Ordinary whole-file writes can hold a stale ``Config`` snapshot, so they preserve
     the on-disk ``enabled`` value. Apply/CLI writers pass ``autostart_authoritative``
-    and become the only code paths allowed to change it. ``manage_ollama`` has no OS
-    side effect and is always rendered from memory.
+    and become the only code paths allowed to change it.
     """
     lines = ["[autostart]"]
     if autostart_authoritative:
@@ -6252,7 +6192,6 @@ def _autostart_lines(
         disk = on_disk_autostart or {}
         if "enabled" in disk:
             lines.append(f"enabled = {_toml_bool(_coerce_bool(disk['enabled'], default=False))}")
-    lines.append(f"manage_ollama = {_toml_bool(config.autostart.manage_ollama)}")
     return lines
 
 
@@ -6525,7 +6464,6 @@ def _render_config_toml(
         lines.extend(_render_provider_section("claude", config.llm.claude))
         lines.extend(_render_provider_section("gemini", config.llm.gemini))
         lines.extend(_render_provider_section("deepseek", config.llm.deepseek))
-        lines.extend(_render_provider_section("ollama", config.llm.ollama))
         lines.extend(_render_provider_section("openrouter", config.llm.openrouter))
         lines.extend(_render_provider_section("orcarouter", config.llm.orcarouter))
         lines.extend(_render_provider_section("openai_compatible", config.llm.openai_compatible))
@@ -6599,7 +6537,7 @@ def _render_config_toml(
             "# Overseas routing mode: system (default; inherit HTTP(S)_PROXY /",
             "# OS proxy), direct (ignore env proxy), custom (use proxy below).",
             "# Applies to LLM SDKs, YouTube, Bangumi,",
-            "# the GitHub updater, Codex OAuth. B站/抖音/Ollama 等国内直连请求",
+            "# the GitHub updater, Codex OAuth. B站/抖音 等国内直连请求",
             "# 始终直连,不受此项影响。",
             "# 支持 http:// | https:// | socks5:// | socks5h://",
             f"mode = {_toml_string(config.network.mode)}",
@@ -7067,7 +7005,6 @@ def _render_llm_instance_section(
         f"http_referer = {_toml_string(instance.http_referer)}",
         f"x_title = {_toml_string(instance.x_title)}",
         f"reasoning_effort = {_toml_string(instance.reasoning_effort)}",
-        f"num_ctx = {max(0, int(instance.num_ctx))}",
         "",
     ]
 
@@ -7081,7 +7018,6 @@ def _render_provider_section(name: str, provider: LLMProviderConfig) -> list[str
         "openai",
         "claude",
         "deepseek",
-        "ollama",
         "openrouter",
         "orcarouter",
         "openai_compatible",

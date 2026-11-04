@@ -1,5 +1,7 @@
 # 开机自启动 SPEC
 
+> ⚠️ **变更说明（本地模型移除后）**：本文档记录的是 v0.3.x 引入开机自启动时的原始设计，其中 `[autostart].manage_ollama`、`runtime/ollama_supervisor.py`、`start` 的 Ollama preflight、`/api/autostart-status` 的 `manage_ollama` / `ollama_required` 字段**均已随本地模型支持一并删除**。当前实现只保留「登录时拉起后端」这一件事；聊天与 embedding 全部走远程 API。以下历史论证保留供参考。
+
 **Created:** 2026-06-04
 **Updated:** 2026-06-05
 **Ambiguity score:** 0.08 (gate: <= 0.20)
@@ -75,7 +77,7 @@ env         = { OPENBILICLAW_PROJECT_ROOT: <配置根>, PATH: <注入 ollama 所
 - Linux：XDG `.desktop` 只在 **图形登录** 生效；无头服务器场景在文档里指向 `systemd --user` + `loginctl enable-linger`，v1 不实现，status 仍报 `supported=true, mechanism="xdg_autostart"`。`.desktop` 最小字段：`Type=Application` / `Name=OpenBiliClaw` / `Exec=env KEY=VAL … <python> -m openbiliclaw.cli start` / `X-GNOME-Autostart-enabled=true` / `Hidden=false`。
 - 三平台都要 **幂等**：重复 enable 不产生重复项；disable 未注册时是 no-op。
 
-### 2. Ollama 顺带自启动（依赖引导，而非独立自启动项）
+### 2. Ollama 顺带自启动（依赖引导，而非独立自启动项）—— **已移除**
 
 在 `openbiliclaw start` 启动序列里加一道 **preflight**：
 

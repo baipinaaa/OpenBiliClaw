@@ -28,7 +28,7 @@ class RequestyProvider(OpenAIProvider):
     """
 
     # Requesty chat traffic does not double as the embedding backend; fall
-    # back to ollama / gemini by default, matching the OpenRouter adapter.
+    # back to gemini by default, matching the OpenRouter adapter.
     supports_embedding = False
 
     def __init__(

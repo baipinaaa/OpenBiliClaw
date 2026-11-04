@@ -67,7 +67,6 @@ def _source_config(root: Path) -> Config:
     config.tailnet.enabled = True
     config.tailnet.hostname = "source-openbiliclaw-host"
     config.autostart.enabled = True
-    config.autostart.manage_ollama = True
     config.sources.browser_cdp_url = "http://127.0.0.1:19222"
     save_config(config, root / "config.toml", autostart_authoritative=True)
     _write_file(
@@ -158,7 +157,6 @@ def _target_config(root: Path) -> Config:
     config.tailnet.enabled = False
     config.tailnet.hostname = "target-openbiliclaw-host"
     config.autostart.enabled = False
-    config.autostart.manage_ollama = False
     config.sources.browser_cdp_url = "http://127.0.0.1:29222"
     save_config(config, root / "config.toml", autostart_authoritative=True)
     _write_file(root / "config.local.toml", '[bilibili]\ncookie = "target-local-cookie"\n')

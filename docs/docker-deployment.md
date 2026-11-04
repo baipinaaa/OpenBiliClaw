@@ -1,6 +1,6 @@
 # Docker 部署指南
 
-> 向量 GPU → CPU 自动回退仅适用于后端进程可见的 loopback Ollama 端点。Compose 默认通过 `http://ollama:11434` 访问独立容器，不自动更改其执行模式；该容器仍按部署的 GPU/CPU 配置运行。
+> 向量请求是普通的远程 HTTP 调用（Gemini / OpenAI / 自建兼容网关）。本版本不含本地推理运行时，也不存在 GPU → CPU 回退路径。改其执行模式；该容器仍按部署的 GPU/CPU 配置运行。
 
 [← 返回 README](../README.md)
 
@@ -18,19 +18,7 @@
 
 - [Docker](https://docs.docker.com/get-docker/) 20.10+
 - [Docker Compose](https://docs.docker.com/compose/install/) V2（`docker compose` 命令）
-- 一个 LLM API Key（OpenAI / Claude / Gemini / DeepSeek / OpenRouter / OrcaRouter / Requesty）—— **Embedding 用 compose 自带的 Ollama 不再需要单独申请**
-
-### 自带 Ollama embedding sidecar（bge-m3 已烤进镜像,离线开箱即用）
-
-`docker-compose.yml` 有一个 `ollama` 服务,对外暴露 `http://ollama:11434`,用 Docker 网络和后端互通。**bge-m3(~1.1GB)已在构建时烤进镜像 `openbiliclaw-ollama`**:容器启动时其 entrypoint 把烤好的模型播种进存储再 serve,**零网络拉取、离线可用**,对国内网络尤其友好。named volume `openbiliclaw_ollama` 持久化,重建容器不丢。
-
-- 预构建路径(`docker-compose.prebuilt.yml`):直接拉 GHCR 上的 `openbiliclaw-ollama:<version>` 镜像。
-- 源码构建路径(`docker-compose.yml`):`ollama` 服务用 `docker/ollama-bundled.Dockerfile` 本地构建(构建时联网拉一次 bge-m3 烤进镜像;之后运行离线)。
-- 万一烤好的种子缺失/损坏,healthcheck 会**明确报 unhealthy**(不静默降级);设 `OPENBILICLAW_OLLAMA_ALLOW_PULL=1` 可显式允许运行时联网补拉。
-
-后端容器首次启动时会自动把 `[llm.embedding] provider="ollama" model="bge-m3" base_url="http://ollama:11434/v1"` 写进生成的 `config.toml`,所以你**只需要给一个 chat 模型的 Key**,embedding 完全免费 + 离线可用。
-
-不需要这个 sidecar？删掉 `docker-compose.yml` 里 `ollama` 服务块和后端的 `OPENBILICLAW_SEED_OLLAMA_DEFAULTS` 环境变量即可。
+- 一个 LLM API Key（OpenAI / Claude / Gemini / DeepSeek / OpenRouter / OrcaRouter / Requesty）—— **Embedding 另需一个 Gemini / OpenAI / 自建网关的 Key**
 
 ### 平台支持（v0.3.4+）
 
@@ -134,13 +122,13 @@ $env:MODE="docker"; iwr https://raw.githubusercontent.com/whiteguo233/OpenBiliCl
 
 1. 在宿主机终端收集安装选择（LLM provider、embedding、B 站 Cookie 获取方式，以及小红书 / 抖音 / YouTube 初始化 opt-in；X / 知乎 / Reddit 请在 `/setup/` 引导页或后端设置页里开启）。Contract marker: human Docker one-line installer asks language first, then the same LLM provider.
 2. 写入宿主机 `config.toml`。
-3. `docker compose up -d --build` 启动后端和 Ollama embedding sidecar。
+3. `docker compose up -d --build` 启动后端。
 4. 把确认后的 `config.toml` / Cookie 文件同步到容器 `/app/runtime`。
 5. 等浏览器扩展把 B 站 Cookie 推到 `http://127.0.0.1:8420/api/bilibili/cookie`。
 6. 在容器运行时里按顺序检查全局 LLM 实例链，并单独检查 embedding 服务。
 7. 检查通过后自动运行 `openbiliclaw init`。
 
-缺 LLM Key、缺 Cookie、缺来源确认时，bootstrap 会停在明确的 `needs_secrets` / `needs_decisions` 状态并打印继续命令；这不是最终成功状态。凭据和选择齐全后，bootstrap 会先做真实服务检查。如果返回 `service_check_failed`，说明 init 尚未运行，先修 API key / base_url / model / Ollama 后再重跑同一条安装或 bootstrap 命令。
+缺 LLM Key、缺 Cookie、缺来源确认时，bootstrap 会停在明确的 `needs_secrets` / `needs_decisions` 状态并打印继续命令；这不是最终成功状态。凭据和选择齐全后，bootstrap 会先做真实服务检查。如果返回 `service_check_failed`，说明 init 尚未运行，先修 API key / base_url / model 后再重跑同一条安装或 bootstrap 命令。
 
 AI agent 一句话部署时，`agent_bootstrap.py` 会在 auto-init 期间额外输出 `BOOTSTRAP_STATUS status=progress message=init_progress` 事件。Agent 应把这些 `1/4`、`2/4`、`3/4`、`4/4` 和发现补货进度及时转述给用户，而不是等最终 `init_complete` 后才汇报。
 
@@ -152,8 +140,8 @@ AI agent 一句话部署时，`agent_bootstrap.py` 会在 auto-init 期间额外
 
 ### 启动后的通用说明
 
-- 默认 embedding 是 `ollama` + `bge-m3`，Docker 里写成 compose 网络地址 `http://ollama:11434/v1`，指向随 compose 启动的 sidecar。如果你手动填了其他 embedding endpoint，不会被覆盖。
-- **后端不再等 sidecar 拉完模型才启动**：`bge-m3` 首次下载（~568MB）期间后端已经可用，`/setup/` 的前置检查会显示 embedding 尚未就绪，拉取完成后自动通过。模型下载失败时 sidecar 守护进程仍在，重启 compose 会自动重试。
+- 默认**不启用** embedding：在 `/setup/` 或 `openbiliclaw setup-embedding` 里配置云端 provider（Gemini / OpenAI / 自建兼容网关）即可开启语义去重与多样性。如果你手动填了其他 embedding endpoint，不会被覆盖。
+- **provider 不可用时后端照常启动**：`/setup/` 的前置检查会把 embedding 标成未就绪并给出原因（API Key / base_url / 模型名），修好后下一次探活即通过。
 - B 站登录态推荐用浏览器扩展：扩展装在**宿主机浏览器**里，不在容器里。你登录 bilibili.com 后，扩展会把 Cookie 自动 POST 到 `127.0.0.1:8420` 的后端接口。
 - 小红书 / 抖音 / YouTube / X / 知乎 / Reddit / Bangumi / V2EX / 微博 / GitHub 都默认关闭，只有你在 `/setup/` 或设置页明确开启才会进入适用链路；需要个人浏览器信号的来源仍需在宿主机浏览器里装扩展并登录对应站点；Bangumi 与 GitHub 使用官方匿名只读 API，GitHub 不依赖扩展；微博公开请求匿名、个人 bootstrap 走扩展同源任务。镜像通过 pip 安装项目，X 的 `twitter-cli` 和 Reddit 的 `rdt-cli` 已内置。
 - `[tailnet]` 也保持默认关闭。即使从宿主机挂载一个自行编译的 helper，容器网络 / 状态目录 / 生命周期仍不属于首版受支持路径；本指南不提供这种半自定义部署的可用性承诺。
@@ -296,12 +284,11 @@ base_url = "https://relay.example.com/v1"
 | `gemini` | ✅ | Google AI Studio 账户 | 免费档每天 1500 次够日常用；自带 embedding endpoint |
 | `openai` | ✅ | 已有 OpenAI 账户 | base_url 留空 = `https://api.openai.com/v1`；自带 embedding endpoint |
 | `claude` | ✅ | Anthropic 账户 | 高质量推理；无 embedding 接口，需独立配置 `[llm.embedding]` |
-| `openrouter` | ✅ | 想一个 Key 跑多家模型 | 按调用计费；embedding 不可靠，建议独立配置 Ollama / Gemini / OpenAI embedding |
+| `openrouter` | ✅ | 想一个 Key 跑多家模型 | 按调用计费；embedding 不可靠，建议独立配置 Gemini / OpenAI embedding |
 | `orcarouter` | ✅ | 一个 Key 跑 150+ 模型 + 网关级零信任安全 | 按调用计费；无 embedding 接口，需独立配置 `[llm.embedding]` |
 | `requesty` | ✅ | 想一个 Key 跑多家模型 | 按调用计费；无 embedding 接口，需独立配置 `[llm.embedding]` |
 | `api_route` | ✅ | 一个 Key 使用多家模型 | 按调用计费；embedding 需独立配置 `[llm.embedding]` |
 | `cheaperinference` | ✅ | 一个 Key 使用多家模型 | 按调用计费；embedding 需独立配置 `[llm.embedding]` |
-| `ollama` | ❌ | 完全离线 / 不要 Key / 16GB+ 内存 | CPU 推理首次响应慢（10-60s）。Docker 里的 Ollama chat 实例必须把 `base_url` 设成 `http://host.docker.internal:11434/v1` 才能访问宿主机 |
 | OpenAI 协议兼容自建网关（高级） | ✅ 通常需要 | 自己有 vLLM / LMStudio / Azure / OneAPI / 团队 LLM 网关 | 使用 `provider_type="openai_compatible"`，必须显式配置 `base_url`。**普通用户不要选这个** |
 
 > 「OpenAI 官方」 ≠ 「OpenAI 协议兼容自建网关」：向导把这两个拆成独立菜单项，并创建不同 `provider_type` 的实例；它们可以同时保留在 registry 和调用链中。
@@ -318,7 +305,7 @@ base_url = "https://relay.example.com/v1"
 画像按需加载无新依赖、数据迁移或安装步骤，详见[配置](modules/config.md#decisionprovidersjev)。
 
 导演三模式与独立语义过滤均默认关闭；它们使用现有依赖，无需安装 Jev SDK、模型
-或额外 sidecar。显式启用时，按[配置参考](modules/config.md#director)修改容器实际
+或额外组件。显式启用时，按[配置参考](modules/config.md#director)修改容器实际
 配置目录 `/app/runtime` 的 TOML，而不是宿主机未挂载的同名文件。`agent_only` 且
 过滤关闭时不需要 Jev；其余启用 Jev 的路由需独立凭据，不借用聊天 / embedding Key。
 
@@ -355,7 +342,7 @@ docker compose up -d --force-recreate openbiliclaw-backend
 # B 站认证登录
 docker exec -it openbiliclaw-backend openbiliclaw auth login
 
-# 可选：启用本地 Ollama 作为独立 embedding provider
+# 可选：配置独立 embedding provider（Gemini / 自建兼容网关）
 docker exec -it openbiliclaw-backend openbiliclaw setup-embedding
 
 # 手动触发内容发现
@@ -416,7 +403,7 @@ docker exec -it openbiliclaw-backend cat /app/runtime/logs/openbiliclaw.log
 桌面 Web 的 `.obcbackup` 迁移 API 坚持**后端观察到的真实 loopback + 同源**边界。默认 Docker bridge / 端口转发下，宿主机浏览器在容器内通常表现为 bridge gateway，因此配置页导入 / 导出可能按设计返回 `403 local_only`；LAN、Caddy 或 TLS 远程入口也不能用密码 / Bearer 绕过。Docker 跨机器迁移请继续使用停止容器后的 volume 冷拷贝，避免运行中的 SQLite 与 WAL 被拆开：
 
 ```bash
-# 先停止后端写入（Ollama 可继续运行）
+# 先停止后端写入
 docker compose stop openbiliclaw-backend
 
 # 备份整个数据目录（数据库、画像、Cookie、图片缓存等）
@@ -461,41 +448,19 @@ export OPENBILICLAW_PROXY_HOST=192.168.1.100
 docker compose up -d --build
 ```
 
-### Ollama 本地模型
+### 自建 OpenAI 兼容 embedding 网关
 
-如使用宿主机上的 Ollama，需确保 Ollama 监听 `0.0.0.0`，并在配置中设置：
-
-```toml
-[llm.instances.ollama-host]
-name = "宿主机 Ollama"
-provider_type = "ollama"
-enabled = true
-model = "llama3"
-base_url = "http://host.docker.internal:11434/v1"
-```
-
-### 本地 embedding provider（Ollama + bge-m3）
-
-不想再多一份 embedding API Key、或想让系统在断网时仍能跑相似度计算，可以让 Ollama 同时承担 embedding 服务：
-
-```bash
-# 1. 在宿主机拉取 bge-m3（首次 ~568MB，CPU 即可跑）
-ollama pull bge-m3
-
-# 2. 在容器里写入 embedding 配置（推荐用 setup-embedding 命令）
-docker exec -it openbiliclaw-backend openbiliclaw setup-embedding
-```
-
-或直接编辑 `config.toml` 的 `[llm.embedding]` 段：
+镜像不含任何本地模型运行时。若想用自建服务做 embedding（vLLM / LM Studio / OneAPI），把 `base_url` 指向容器可达的地址：
 
 ```toml
 [llm.embedding]
-provider = "ollama"
-model = "bge-m3"
-base_url = "http://host.docker.internal:11434/v1"
+provider = "openai_compatible"
+model = "<你的模型名>"
+base_url = "http://host.docker.internal:8000/v1"
+api_key = "<该网关的 Key>"
 ```
 
-注意：容器需要能访问宿主机的 Ollama；embedding 读取自己的 `[llm.embedding].base_url`，默认不会自动复用 chat 实例地址。只有显式开启 embedding 兼容 fallback 时，才可能借用首个启用的同类型 chat 实例。
+容器访问宿主机时用 `host.docker.internal`（Linux 需 compose 里的 `extra_hosts: host-gateway`）。
 
 ## 常见问题
 
@@ -526,7 +491,7 @@ docker compose up -d --build
 两个 compose 文件（源码构建的 `docker-compose.yml` 和预构建的 `docker-compose.prebuilt.yml`）管理的是同一组固定容器名。从一种方式切到另一种前，先在旧目录里 `docker compose down`（数据在 named volume 里，不会丢）；或直接移除残留容器后重试：
 
 ```bash
-docker rm -f openbiliclaw-backend openbiliclaw-ollama
+docker rm -f openbiliclaw-backend
 ```
 
 **Q: 端口 8420 被占用怎么办？**

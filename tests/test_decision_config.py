@@ -28,7 +28,7 @@ def test_old_config_keeps_decision_disabled_without_credentials(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
-    config = _build_config({"llm": {"default_provider": "ollama"}}, consult_environment=False)
+    config = _build_config({"llm": {"default_provider": "deepseek"}}, consult_environment=False)
 
     assert isinstance(config.decision, DecisionConfig)
     assert isinstance(config.decision.providers, DecisionProvidersConfig)

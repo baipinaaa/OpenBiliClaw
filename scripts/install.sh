@@ -538,9 +538,9 @@ PY
         echo "Next steps — ask the user before running init:"
         echo ""
         echo "  1. Embedding service (default recommendation):"
-        echo "       Local Ollama bge-m3 — free/offline/no extra API key."
-        echo "       If they choose Gemini/OpenAI/custom instead, replace the"
-        echo "       --embedding-* flags below with their chosen provider/model."
+        echo "       Gemini embedding (gemini-embedding-001) — free tier available;"
+        echo "       it needs a Gemini API key. OpenAI / custom OpenAI-compatible"
+        echo "       endpoints work too — swap the --embedding-* flags below."
         echo ""
         echo "  2. Source bootstrap data (privacy choice):"
         echo "       Ask whether to include Xiaohongshu likes/favorites and"
@@ -554,8 +554,8 @@ PY
         echo "         --project-dir $INSTALL_DIR \\"
         case "$decisions" in
             *embedding*)
-                echo "         --embedding-provider ollama \\"
-                echo "         --embedding-model bge-m3 \\"
+                echo "         --embedding-provider gemini \\"
+                echo "         --embedding-model gemini-embedding-001 \\"
                 ;;
         esac
         echo "         $xhs_flag \\"
@@ -574,8 +574,8 @@ PY
             echo ""
         fi
         echo "  1. Fix the failing service:"
-        echo "       - llm: check provider, API key, base_url/model, quota, or Ollama chat model."
-        echo "       - embedding: check [llm.embedding], API key/base_url/model, or run Ollama + pull bge-m3."
+        echo "       - llm: check provider, API key, base_url/model, or quota."
+        echo "       - embedding: check [llm.embedding], API key/base_url/model."
         echo "  2. Re-run the same bootstrap command after the fix (DO NOT add --skip-init)."
         echo "     It will repeat the service checks and only then run openbiliclaw init."
         echo ""
@@ -592,7 +592,7 @@ PY
         echo "      bootstrap so it can run 'openbiliclaw init'."
         echo ""
         echo "      Required before init:"
-        echo "        - Embedding model/service (default: Ollama bge-m3)"
+        echo "        - Embedding model/service (default: Gemini gemini-embedding-001)"
         echo "        - Xiaohongshu likes/favorites? (default: no; yes only on opt-in)"
         echo "        - Douyin post/favorite/like/follow? (default: no; yes only on opt-in)"
         echo "        - YouTube history/subscriptions/likes? (default: no; yes only on opt-in)"
@@ -605,8 +605,8 @@ PY
         echo "            --bilibili-cookie '<YOUR_COOKIE>' \\"
         case "$decisions" in
             *embedding*)
-                echo "            --embedding-provider ollama \\"
-                echo "            --embedding-model bge-m3 \\"
+                echo "            --embedding-provider gemini \\"
+                echo "            --embedding-model gemini-embedding-001 \\"
                 ;;
         esac
         echo "            $xhs_flag \\"
@@ -623,11 +623,11 @@ PY
         echo ""
         echo "  1. Choose your LLM chat provider (default: deepseek):"
         echo "     Supported: deepseek | openai | gemini | claude | openrouter | requesty | api_route | cheaperinference | openai_compatible"
-        echo "     (Local Ollama is embedding-only here — not offered as a chat provider.)"
+        echo "     (No local model runtime ships here — use openai_compatible for self-hosted.)"
         echo ""
         echo "  2. Ask which embedding service to use:"
-        echo "     Default: local Ollama bge-m3 (free/offline/no extra API key)."
-        echo "     Alternatives: Gemini embedding, OpenAI text-embedding-3-small,"
+        echo "     Default: Gemini embedding (needs a Gemini API key; free tier)."
+        echo "     Alternatives: OpenAI text-embedding-3-small,"
         echo "     or a custom OpenAI-compatible embedding endpoint."
         echo ""
         echo "  3. Ask whether to include source bootstrap data:"
@@ -681,8 +681,8 @@ PY
         esac
         case "$decisions" in
             *embedding*)
-                echo "         --embedding-provider ollama \\"
-                echo "         --embedding-model bge-m3 \\"
+                echo "         --embedding-provider gemini \\"
+                echo "         --embedding-model gemini-embedding-001 \\"
                 ;;
         esac
         echo "         $xhs_flag \\"
@@ -718,12 +718,8 @@ PY
         echo "      cd $INSTALL_DIR && uv run openbiliclaw init"
     fi
     echo ""
-    echo "Optional: enable local Ollama as the embedding fallback"
-    echo "  (no extra API key needed; useful when your remote embedding quota runs out)"
-    echo "      Mac:     install and launch official Ollama.app: https://ollama.com/download/mac"
-    echo "      Windows: install from https://ollama.com/download then start the app"
-    echo "      Linux:   curl -fsSL https://ollama.com/install.sh | sh && ollama serve &"
-    echo "  Then:"
+    echo "Optional: switch the embedding provider (chat history / dedup resets)"
+    echo "  Useful when your remote embedding quota runs out:"
     echo "      cd $INSTALL_DIR && uv run openbiliclaw setup-embedding"
     echo ""
     echo "Optional LAN/self-managed HTTPS (disabled by default):"

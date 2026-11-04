@@ -119,43 +119,6 @@ def test_bootstrap_runtime_root_keeps_existing_config(tmp_path: Path) -> None:
     assert existing.read_text(encoding="utf-8") == '[general]\nlanguage = "en"\n'
 
 
-def test_bootstrap_runtime_root_seeds_embedding_base_url_for_ollama_sidecar(
-    tmp_path: Path,
-) -> None:
-    runtime_root = tmp_path / "runtime"
-    template = tmp_path / "config.example.toml"
-    template.write_text(
-        "\n".join(
-            [
-                "[llm.ollama]",
-                'base_url = ""',
-                "",
-                "[llm.embedding]",
-                'provider = ""',
-                'model = ""',
-                'base_url = ""',
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    bootstrap_runtime_root(
-        runtime_root=runtime_root,
-        template_path=template,
-        env={
-            "OPENBILICLAW_SEED_OLLAMA_DEFAULTS": "1",
-            "OPENBILICLAW_OLLAMA_BASE_URL": "http://ollama:11434/v1",
-            "OPENBILICLAW_EMBEDDING_MODEL": "bge-m3",
-        },
-    )
-
-    text = (runtime_root / "config.toml").read_text(encoding="utf-8")
-    assert "[llm.embedding]" in text
-    assert 'provider = "ollama"' in text
-    assert 'model = "bge-m3"' in text
-    assert 'base_url = "http://ollama:11434/v1"' in text
-
-
 def test_bootstrap_runtime_environment_prepares_runtime_root_and_proxy(tmp_path: Path) -> None:
     runtime_root = tmp_path / "runtime"
     template = tmp_path / "config.example.toml"
@@ -338,7 +301,7 @@ def test_docker_runtime_root_survives_a_version_rollback(
     into the dataclass and die with a bare TypeError, taking every code path
     that loads config down with it — in Docker that is a container that never
     becomes healthy, with an unreadable traceback. Verified in the Docker shape
-    specifically (own runtime root + config template + ollama seeding) because
+    specifically (own runtime root + config template) because
     the fix is install/update-adjacent.
     """
     from openbiliclaw.config import load_config

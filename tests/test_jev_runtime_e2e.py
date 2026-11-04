@@ -52,7 +52,7 @@ def real_jev_app(tmp_path: Path) -> Iterator[tuple[str, Path, subprocess.Popen]]
     cfg.llm.deepseek.base_url = "http://127.0.0.1:1"
     cfg.llm.default_provider = "deepseek"
     cfg.llm.default_chain = ["deepseek"]
-    cfg.llm.embedding.provider = "ollama"
+    cfg.llm.embedding.provider = "gemini"
     cfg.llm.embedding.base_url = "http://127.0.0.1:1"
     for entry in fields(cfg.sources):
         source = getattr(cfg.sources, entry.name)

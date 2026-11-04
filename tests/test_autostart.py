@@ -17,7 +17,7 @@ def test_active_env_managed_inputs_detects_known_external_env(
     cfg = Config()
     cfg.sources.douyin.cookie_env = "CUSTOM_DOUYIN_COOKIE"
     monkeypatch.setenv("OPENBILICLAW_PROJECT_ROOT", "/tmp/openbiliclaw")
-    monkeypatch.setenv("OPENBILICLAW_LLM_DEFAULT_PROVIDER", "ollama")
+    monkeypatch.setenv("OPENBILICLAW_LLM_DEFAULT_PROVIDER", "deepseek")
     monkeypatch.setenv("OPENBILICLAW_API_AUTH_PASSWORD", "secret")
     monkeypatch.setenv("GOOGLE_API_KEY", "gemini-key")
     monkeypatch.setenv("CUSTOM_DOUYIN_COOKIE", "sid=1")
@@ -77,18 +77,13 @@ def test_build_launch_spec_uses_python_module_and_project_root(
 ) -> None:
     from openbiliclaw.runtime.autostart.command import build_launch_spec
 
-    ollama_bin = tmp_path / "bin" / "ollama"
-    ollama_bin.parent.mkdir()
-    ollama_bin.write_text("", encoding="utf-8")
     monkeypatch.setenv("OPENBILICLAW_PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setattr("shutil.which", lambda name: str(ollama_bin) if name == "ollama" else None)
 
     spec = build_launch_spec(Config())
 
     assert spec.argv == [sys.executable, "-m", "openbiliclaw.cli", "start"]
     assert spec.working_dir == tmp_path
     assert spec.env["OPENBILICLAW_PROJECT_ROOT"] == str(tmp_path)
-    assert str(ollama_bin.parent) in spec.env["PATH"].split(":")
 
 
 def test_resolve_pythonw_falls_back_when_missing(tmp_path: Path) -> None:

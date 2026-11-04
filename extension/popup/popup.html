@@ -6384,12 +6384,9 @@
         <div id="embeddingBanner" class="embedding-banner" hidden role="status">
           <div class="embedding-banner-text">
             <strong>语义去重未启用</strong>
-            <span>可能会刷到换皮重复的视频。启用本地 Ollama 向量化即可改善。</span>
+            <span>可能会刷到换皮重复的视频。在设置里配置云端 Embedding Provider（Gemini / OpenAI / 兼容网关）即可改善。</span>
           </div>
           <div class="embedding-banner-actions">
-            <button id="embeddingBannerEnable" type="button" class="embedding-banner-btn">
-              一键启用本地 Ollama
-            </button>
             <button id="embeddingBannerDismiss" type="button" class="embedding-banner-dismiss" aria-label="关闭提示">
               ✕
             </button>
@@ -6775,7 +6772,6 @@
             <option value="claude">Claude</option>
             <option value="gemini">Gemini</option>
             <option value="deepseek">DeepSeek</option>
-            <option value="ollama">Ollama (本地)</option>
             <option value="openrouter">OpenRouter</option>
             <option value="orcarouter">OrcaRouter</option>
             <option value="requesty">Requesty</option>
@@ -6800,7 +6796,6 @@
             <option value="claude">Claude</option>
             <option value="gemini">Gemini</option>
             <option value="deepseek">DeepSeek</option>
-            <option value="ollama">Ollama (本地)</option>
             <option value="openrouter">OpenRouter</option>
             <option value="orcarouter">OrcaRouter</option>
             <option value="requesty">Requesty</option>
@@ -6885,17 +6880,6 @@
               <option value="high">high</option>
               <option value="max">max</option>
             </select>
-          </div>
-        </div>
-        <!-- Ollama -->
-        <div class="settings-provider-fields" data-provider="ollama">
-          <div class="settings-field">
-            <label for="cfgOllamaModel">Model</label>
-            <input id="cfgOllamaModel" type="text" placeholder="qwen2.5:7b">
-          </div>
-          <div class="settings-field">
-            <label for="cfgOllamaBaseUrl">Base URL</label>
-            <input id="cfgOllamaBaseUrl" type="text" placeholder="http://localhost:11434/v1">
           </div>
         </div>
         <!-- OpenRouter -->
@@ -7013,7 +6997,6 @@
             <option value="">(不启用 embedding)</option>
             <option value="openai">OpenAI</option>
             <option value="gemini">Gemini</option>
-            <option value="ollama">Ollama (本地)</option>
             <option value="openai_compatible">OpenAI 协议兼容 (Together/vLLM/Azure 等)</option>
             <option value="dashscope">DashScope 阿里百炼 (qwen3-vl 多模态)</option>
           </select>
@@ -7024,7 +7007,6 @@
             <option value="">(不启用 fallback)</option>
             <option value="openai">OpenAI</option>
             <option value="gemini">Gemini</option>
-            <option value="ollama">Ollama (本地)</option>
             <option value="openai_compatible">OpenAI 协议兼容 (Together/vLLM/Azure 等)</option>
           </select>
         </div>
@@ -7065,7 +7047,6 @@
             <option value="claude">Claude</option>
             <option value="gemini">Gemini</option>
             <option value="deepseek">DeepSeek</option>
-            <option value="ollama">Ollama</option>
             <option value="openrouter">OpenRouter</option>
             <option value="orcarouter">OrcaRouter</option>
             <option value="requesty">Requesty</option>
@@ -7086,7 +7067,6 @@
             <option value="claude">Claude</option>
             <option value="gemini">Gemini</option>
             <option value="deepseek">DeepSeek</option>
-            <option value="ollama">Ollama</option>
             <option value="openrouter">OpenRouter</option>
             <option value="orcarouter">OrcaRouter</option>
             <option value="requesty">Requesty</option>
@@ -7107,7 +7087,6 @@
             <option value="claude">Claude</option>
             <option value="gemini">Gemini</option>
             <option value="deepseek">DeepSeek</option>
-            <option value="ollama">Ollama</option>
             <option value="openrouter">OpenRouter</option>
             <option value="orcarouter">OrcaRouter</option>
             <option value="requesty">Requesty</option>
@@ -7128,7 +7107,6 @@
             <option value="claude">Claude</option>
             <option value="gemini">Gemini</option>
             <option value="deepseek">DeepSeek</option>
-            <option value="ollama">Ollama</option>
             <option value="openrouter">OpenRouter</option>
             <option value="orcarouter">OrcaRouter</option>
             <option value="requesty">Requesty</option>
@@ -8174,7 +8152,7 @@
             <span>登录系统时自动拉起 OpenBiliClaw 后端</span>
           </div>
           <p class="settings-hint" id="cfgAutostartHint">读取开机自启动状态中…</p>
-          <p class="settings-note">只影响下次登录拉起后端，不启停当前进程；本机 Ollama 配置可能随启动预检一起拉起。若依赖 shell 环境变量，建议先写入 config.toml。</p>
+          <p class="settings-note">只影响下次登录拉起后端，不启停当前进程。若依赖 shell 环境变量，建议先写入 config.toml。</p>
         </div>
         <div class="settings-field" id="tailnetControlField">
           <label>应用内 Tailnet 远程访问</label>
@@ -8638,8 +8616,7 @@
                 <option value="requesty">Requesty</option>
                 <option value="api_route">API Route</option>
                 <option value="cheaperinference">Cheaper Inference</option>
-                <option value="ollama">Ollama</option>
-                <option value="openai_compatible">OpenAI-compatible</option>
+                    <option value="openai_compatible">OpenAI-compatible</option>
               </select>
             </label>
             <label class="settings-field">
@@ -8697,10 +8674,6 @@
                 <option value="max"></option>
               </datalist>
               <small id="cfgLlmInstanceReasoningHint" class="settings-model-discovery-status">协议没有 Effort 枚举接口；这里是本地建议，也支持手填。</small>
-            </label>
-            <label class="settings-field" data-llm-instance-field="ollama">
-              <span>Ollama 上下文窗口</span>
-              <input id="cfgLlmInstanceNumCtx" type="number" min="0" inputmode="numeric" placeholder="0（服务默认）">
             </label>
             <label class="settings-field is-full" data-llm-instance-field="openrouter">
               <span>HTTP Referer</span>

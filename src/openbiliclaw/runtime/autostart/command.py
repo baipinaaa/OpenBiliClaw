@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import shutil
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -16,17 +14,6 @@ if TYPE_CHECKING:
     from openbiliclaw.config import Config
 
 
-def _path_with_ollama() -> str:
-    path_value = os.environ.get("PATH", "")
-    parts = [part for part in path_value.split(os.pathsep) if part]
-    ollama = shutil.which("ollama")
-    if ollama:
-        ollama_dir = str(Path(ollama).resolve().parent)
-        if ollama_dir not in parts:
-            parts.insert(0, ollama_dir)
-    return os.pathsep.join(parts)
-
-
 def build_launch_spec(config: Config) -> LaunchSpec:
     """Build the stable backend command embedded in OS autostart entries."""
     del config  # The signature stays manager-friendly as config-driven fields grow.
@@ -36,7 +23,6 @@ def build_launch_spec(config: Config) -> LaunchSpec:
         working_dir=working_dir,
         env={
             "OPENBILICLAW_PROJECT_ROOT": str(working_dir),
-            "PATH": _path_with_ollama(),
         },
     )
 

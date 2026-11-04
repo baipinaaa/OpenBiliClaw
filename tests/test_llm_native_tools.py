@@ -16,7 +16,6 @@ from openbiliclaw.llm.base import (
     LLMToolCallUnsupportedError,
     is_reasoning_budget_exhausted,
 )
-from openbiliclaw.llm.ollama_provider import OllamaProvider
 from openbiliclaw.llm.openai_provider import DeepSeekProvider, OpenAIProvider
 from openbiliclaw.llm.service import LLMService
 
@@ -177,7 +176,6 @@ class TestOpenAINativeToolCalling:
     def test_supports_tool_calling_flags(self) -> None:
         assert OpenAIProvider(api_key="k").supports_tool_calling is True
         assert OpenAIProvider(api_key="k", api_flavor="responses").supports_tool_calling is False
-        assert OllamaProvider(model="qwen3").supports_tool_calling is False
 
     async def test_responses_flavor_rejects_native_tools(self) -> None:
         provider = OpenAIProvider(api_key="k", api_flavor="responses")

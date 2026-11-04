@@ -249,7 +249,7 @@ OpenBiliClaw 还有一个我自己挺喜欢的机制：探针。
 
 OpenBiliClaw 目前更适合愿意折腾的用户，而不是完全无配置的一键消费级产品。
 
-你需要本地运行后端，需要浏览器插件，需要配置 LLM provider。你可以用 OpenAI、Claude、Gemini、DeepSeek、OpenRouter、OpenAI-compatible 服务，也可以尝试 Ollama 这类本地模型路径。
+你需要本地运行后端，需要浏览器插件，需要配置 LLM provider。你可以用 OpenAI、Claude、Gemini、DeepSeek、OpenRouter、OpenAI-compatible 服务（自建 vLLM / LM Studio / OneAPI 网关也属于这一类）。
 
 它的隐私边界也应该讲明白：
 

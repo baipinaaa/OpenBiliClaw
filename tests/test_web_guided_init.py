@@ -368,21 +368,6 @@ def test_setup_wizard_guard_resumes_running_and_initialized_states_on_load() -> 
     assert "showInitCompletion(status)" in guard
 
 
-def test_setup_wizard_guard_reattaches_to_embedding_pull_on_load() -> None:
-    """A packaged desktop may be downloading bge-m3 before guided init starts.
-
-    The first status response must attach the wizard's polling loop to that
-    process-global progress; otherwise the user has to click the init CTA just
-    to make the download percentage move.
-    """
-    setup_html = Path("src/openbiliclaw/web/setup/index.html").read_text(encoding="utf-8")
-    guard = setup_html.split("(async function guard()", 1)[1]
-    assert "embeddingPullProgressView(status).active" in guard
-    assert "scheduleInitPoll" in guard
-    poller = setup_html.split("async function pollInitStatus()", 1)[1]
-    assert "embeddingPullProgressView(status).active" in poller
-
-
 def test_setup_wizard_allows_saved_api_key_to_be_reused_without_reentry() -> None:
     """PUT /api/config only touches fields present in the payload, so an empty
     key field on a provider with a persisted key must not block step 0."""
@@ -453,42 +438,6 @@ def test_setup_wizard_protected_requests_use_csrf_auth_fetch_contract() -> None:
     assert 'const r = await fetch("/api/config", {' not in setup_html
     assert 'const r = await fetchWithTimeout("/api/config", {' in setup_html
     assert '"/api/config/discover-models"' in setup_html
-    assert '"/api/embedding/repair"' in setup_html
-
-
-def test_web_surfaces_offer_embedding_repair_and_progress() -> None:
-    """Both web init checklists expose one-click model download + live progress.
-
-    The repair button POSTs /api/embedding/repair; while the pull runs the
-    backend classifies embedding_check="repairing" and the pages keep polling
-    so the row's hint shows live percent (user request 2026-07-05).
-    """
-    setup_html = Path("src/openbiliclaw/web/setup/index.html").read_text(encoding="utf-8")
-    app_js = Path("src/openbiliclaw/web/desktop/assets/js/app.js").read_text(encoding="utf-8")
-    app_css = Path("src/openbiliclaw/web/desktop/assets/css/app.css").read_text(encoding="utf-8")
-
-    for surface in (setup_html, app_js):
-        assert "data-embedding-repair" in surface
-        assert "embedding_detail" in surface
-        assert "embedding_pull_status" in surface
-        assert "ollama_phase" in surface
-        assert "Ollama 启动中" in surface
-        assert "model_missing" in surface and "model_broken" in surface
-        assert "model_path_encoding" in surface
-        assert "disk_full" in surface and "network" in surface and "model_oom" in surface
-        assert "provider_error" in surface
-        assert "迁移模型目录并修复" in surface
-        assert "重新检测" in surface
-        assert "embeddingPullProgressView" in surface
-    assert '"/api/embedding/repair"' in setup_html
-    assert "embedding_repair_running" in setup_html  # keeps polling while downloading
-    assert 'embeddingRepair: "/embedding/repair"' in app_js
-    assert "handleEmbeddingRepairClick" in app_js
-    assert ".init-repair-btn" in setup_html
-    assert ".init-repair-btn" in app_css
-
-
-# ── init-progress-visibility Phase 0: API models + heartbeat task ────────────
 
 
 def _progress_coord(tmp_path):

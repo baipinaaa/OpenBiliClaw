@@ -16,7 +16,6 @@ from .cheaperinference_provider import CheaperInferenceProvider
 from .claude_provider import ClaudeProvider
 from .dashscope_provider import DashScopeEmbeddingProvider
 from .gemini_provider import GeminiProvider, gemini_sdk_available
-from .ollama_provider import OllamaEmbeddingProvider, OllamaProvider
 from .openai_provider import DeepSeekProvider, OpenAIProvider
 from .openrouter_provider import OpenRouterProvider
 from .orcarouter_provider import OrcaRouterProvider
@@ -65,7 +64,6 @@ def build_llm_registry(
         ("claude", _maybe_claude_provider(config, overrides)),
         ("gemini", _maybe_gemini_provider(config, overrides)),
         ("deepseek", _maybe_deepseek_provider(config, overrides)),
-        ("ollama", _maybe_ollama_provider(config, overrides)),
         ("openrouter", _maybe_openrouter_provider(config, overrides)),
         ("orcarouter", _maybe_orcarouter_provider(config, overrides)),
         ("openai_compatible", _maybe_openai_compatible_provider(config, overrides)),
@@ -77,14 +75,7 @@ def build_llm_registry(
     for _name, provider in provider_specs:
         if provider is None:
             continue
-        # Production Ollama registration already requires an explicit chat
-        # model. Keep the capability check as a defensive boundary for
-        # provider_overrides / legacy integrations that inject a non-chat
-        # Ollama instance into this registry.
-        chat_capable = True
-        if _name == "ollama" and not _ollama_is_chat_capable(config):
-            chat_capable = False
-        registry.register(provider, default=False, chat_capable=chat_capable)
+        registry.register(provider, default=False)
 
     for name, provider in overrides.items():
         if name not in registry.available_providers:
@@ -188,9 +179,6 @@ def _build_instance_llm_registry(
             provider,
             name=instance_id,
             provider_type=provider_type,
-            chat_capable=not (
-                provider_type == "ollama" and not str(getattr(instance, "model", "") or "").strip()
-            ),
         )
 
     if not registry.available_providers:
@@ -224,7 +212,6 @@ def _build_instance_provider(
         "claude": _maybe_claude_provider,
         "gemini": _maybe_gemini_provider,
         "deepseek": _maybe_deepseek_provider,
-        "ollama": _maybe_ollama_provider,
         "openrouter": _maybe_openrouter_provider,
         "orcarouter": _maybe_orcarouter_provider,
         "requesty": _maybe_requesty_provider,
@@ -245,7 +232,6 @@ def _build_instance_provider(
 _EMBEDDING_CAPABLE_PROVIDERS: tuple[str, ...] = (
     "openai",
     "gemini",
-    "ollama",
     # Most OpenAI-protocol-compatible backends (Together, vLLM, Azure
     # OpenAI, ...) expose /v1/embeddings. Groq currently does not, but
     # users running a Groq + openai_compatible setup already have to
@@ -267,7 +253,6 @@ _EMBEDDING_CAPABLE_PROVIDERS: tuple[str, ...] = (
 _DEFAULT_EMBEDDING_MODEL_BY_PROVIDER: dict[str, str] = {
     "gemini": "gemini-embedding-001",
     "openai": "text-embedding-3-small",
-    "ollama": "bge-m3",
     # No safe default for openai_compatible — depends entirely on the
     # upstream service. Users must specify an explicit model.
     "openai_compatible": "text-embedding-3-small",
@@ -328,7 +313,7 @@ def build_embedding_service(
             if name in _EMBEDDING_CAPABLE_PROVIDERS and name not in fallback_order:
                 fallback_order.append(name)
 
-        chosen_provider: LLMProvider | OllamaEmbeddingProvider | None = None
+        chosen_provider: LLMProvider | None = None
         chosen_name = ""
         chosen_model = ""
         for candidate in fallback_order:
@@ -345,7 +330,7 @@ def build_embedding_service(
                 "No embedding-capable provider available (requested=%r). "
                 "Embedding service disabled — recommendation diversity and "
                 "deduplication will degrade. Run 'openbiliclaw setup-embedding' "
-                "to install local Ollama bge-m3, or configure a Gemini API key.",
+                "to configure an embedding provider, or set a Gemini API key.",
                 requested_label,
             )
             return None
@@ -430,7 +415,7 @@ def _build_dedicated_embedding_provider(
     emb_cfg: Any,
     config: Config,
     requested_name: str,
-) -> tuple[LLMProvider | OllamaEmbeddingProvider, str] | None:
+) -> tuple[LLMProvider, str] | None:
     """Construct a dedicated provider instance for embedding calls.
 
     Returns ``(provider, effective_model)`` or ``None`` if the candidate
@@ -482,7 +467,6 @@ def _build_dedicated_embedding_provider(
         if (
             emb_cfg.provider.strip().lower() == candidate
             and candidate == requested_name
-            and candidate != "ollama"
             and borrowed_chat_credentials
         ):
             _emit_embedding_compat_warning(candidate)
@@ -493,51 +477,12 @@ def _build_dedicated_embedding_provider(
     # Effective model: honour explicit emb_cfg.model only when we're
     # building the requested provider — fallback paths must use the
     # per-provider default (e.g. text-embedding-3-small on OpenAI is
-    # meaningless when we fell back to Ollama).
+    # meaningless for a different provider).
     if candidate == requested_name and emb_cfg.model.strip():
         effective_model = emb_cfg.model.strip()
     else:
         effective_model = _DEFAULT_EMBEDDING_MODEL_BY_PROVIDER.get(
             candidate, "gemini-embedding-001"
-        )
-
-    if candidate == "ollama":
-        # Ollama doesn't require an api_key, so without a gate the
-        # constructor would always succeed and silently mask "user has no
-        # embedding-capable provider" — which matters for the warning
-        # path that tells users to set up Ollama or a Gemini key. Only
-        # build it when the user actually opted in:
-        #   - [llm.embedding] supplied its own ollama config, OR
-        #   - the user requested Ollama for embedding, OR
-        #   - [llm.ollama] is configured (back-compat — they run it locally).
-        chat_ollama = config.llm.ollama
-        if bool(getattr(config.llm, "instance_routing", False)):
-            chat_ollama = next(
-                (
-                    instance
-                    for instance in config.llm.instances.values()
-                    if bool(getattr(instance, "enabled", True))
-                    and str(getattr(instance, "provider_type", "") or "").strip().lower()
-                    == "ollama"
-                ),
-                chat_ollama,
-            )
-        has_chat_ollama_config = bool(chat_ollama.model.strip() or chat_ollama.base_url.strip())
-        if not use_embedding_creds and requested_name != "ollama" and not has_chat_ollama_config:
-            return None
-        if not base_url:
-            base_url = "http://127.0.0.1:11434/v1"
-        if not base_url.rstrip("/").endswith("/v1"):
-            base_url = base_url.rstrip("/") + "/v1"
-        # Embedding-only provider: raw httpx to Ollama's native
-        # ``/api/embeddings``. It deliberately does NOT build the chat SDK
-        # client that OllamaProvider inherits (issue #318).
-        return (
-            OllamaEmbeddingProvider(
-                base_url=base_url,
-                model=effective_model,
-            ),
-            effective_model,
         )
 
     if candidate == "openai":
@@ -671,7 +616,7 @@ def _embedding_endpoint(
     provider_name: str,
     emb_cfg: Any,
     config: Config,
-    provider: LLMProvider | OllamaEmbeddingProvider,
+    provider: LLMProvider,
 ) -> str:
     """Return the endpoint actually used by a dedicated embedding provider."""
     for attr in ("base_url", "_base_url"):
@@ -720,7 +665,6 @@ def _embedding_endpoint(
         "openai": "https://api.openai.com/v1",
         "openai_compatible": "",
         "gemini": "https://generativelanguage.googleapis.com",
-        "ollama": "http://127.0.0.1:11434/v1",
         "dashscope": "https://dashscope.aliyuncs.com",
         "openrouter": "https://openrouter.ai/api/v1",
     }
@@ -894,55 +838,6 @@ def _maybe_gemini_provider(config: Config, overrides: dict[str, LLMProvider]) ->
         trust_env=_outbound_trust_env(config.llm.gemini.base_url),
         reasoning_effort=config.llm.gemini.reasoning_effort,
     )
-
-
-def _maybe_ollama_provider(config: Config, overrides: dict[str, LLMProvider]) -> LLMProvider | None:
-    # Keep the explicit-model requirement in sync with config.py
-    # `_collect_config_issues` (config cannot import the registry, cycle).
-    if "ollama" in overrides:
-        return overrides["ollama"]
-
-    raw_base_url = config.llm.ollama.base_url.strip()
-    model = config.llm.ollama.model.strip()
-
-    # v0.3.32+ note: build_embedding_service now constructs its own Ollama
-    # provider directly from [llm.embedding] (or back-compat from
-    # [llm.ollama]) — it no longer goes through this registry. So we no
-    # longer need the old ``embedding_wants_ollama`` auto-register hack:
-    # the chat registry stays clean, and Ollama is only registered here
-    # when the user actually wants chat completions through it.
-    # A URL only identifies an Ollama server; it says nothing about which
-    # chat model exists there. Historically this path substituted ``llama3``
-    # for an empty model, so an embedding-only desktop config repeatedly
-    # probed a model the user never selected. Chat now requires an explicit
-    # model; embedding builds its own provider above.
-    if not model:
-        return None
-    base_url = raw_base_url or "http://127.0.0.1:11434/v1"
-    # Normalise: Ollama's OpenAI-compat shim lives at `/v1/...`. Older
-    # config.example.toml shipped `http://localhost:11434` (no /v1),
-    # which makes the OpenAI SDK call `/chat/completions` — Ollama 404s
-    # those. Append /v1 defensively so existing users with stale configs
-    # still get working chat completions after upgrade.
-    if not base_url.rstrip("/").endswith("/v1"):
-        base_url = base_url.rstrip("/") + "/v1"
-    return OllamaProvider(
-        api_key=config.llm.ollama.api_key or "ollama",
-        model=model,
-        base_url=base_url,
-        timeout=float(config.llm.timeout),
-        num_ctx=int(config.llm.ollama.num_ctx),
-    )
-
-
-def _ollama_is_chat_capable(config: Config) -> bool:
-    """Return whether Ollama has an explicitly configured chat model.
-
-    Naming Ollama as a default, fallback, or module provider is not enough:
-    unlike remote providers, its server URL cannot identify a model and the
-    runtime must never invent one. Keep this rule in sync with config.py.
-    """
-    return bool(config.llm.ollama.model.strip())
 
 
 def _maybe_openrouter_provider(

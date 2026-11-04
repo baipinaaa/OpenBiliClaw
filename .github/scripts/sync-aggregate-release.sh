@@ -62,15 +62,12 @@ if [ -n "$desktop_tag" ]; then
   desktop_line="[${desktop_tag}](https://github.com/${repo}/releases/tag/${desktop_tag})"
 fi
 
-# Docker channel: report the GHCR images only when this exact version's
+# Docker channel: report the GHCR image only when this exact version's
 # manifest is actually pullable (same "no backfill" rule as the other
 # channels). Anonymous registry check; any failure degrades to
-# "Not published yet." without breaking the sync. Both the backend image AND
-# the bundled-bge-m3 Ollama image must be present — the prebuilt compose needs
-# both, so half a release must not read as "Docker ready".
+# "Not published yet." without breaking the sync.
 docker_image_owner="$(printf '%s' "${repo%%/*}" | tr '[:upper:]' '[:lower:]')"
 docker_image="ghcr.io/${docker_image_owner}/openbiliclaw-backend"
-docker_ollama_image="ghcr.io/${docker_image_owner}/openbiliclaw-ollama"
 docker_line="Not published yet."
 docker_download_line=""
 
@@ -89,8 +86,8 @@ _ghcr_manifest_pullable() {
     "https://ghcr.io/v2/${image#ghcr.io/}/manifests/${project_version}" 2>/dev/null
 }
 
-if _ghcr_manifest_pullable "$docker_image" && _ghcr_manifest_pullable "$docker_ollama_image"; then
-  docker_line="[\`${docker_image}:${project_version}\`](https://github.com/${repo}/pkgs/container/openbiliclaw-backend) + [\`${docker_ollama_image}:${project_version}\`](https://github.com/${repo}/pkgs/container/openbiliclaw-ollama) (multi-arch: amd64 + arm64; bge-m3 baked in)"
+if _ghcr_manifest_pullable "$docker_image"; then
+  docker_line="[\`${docker_image}:${project_version}\`](https://github.com/${repo}/pkgs/container/openbiliclaw-backend) (multi-arch: amd64 + arm64)"
   docker_download_line="- Docker (self-hosted): download [\`docker-compose.prebuilt.yml\`](https://github.com/${repo}/blob/main/docker-compose.prebuilt.yml), run \`docker compose -f docker-compose.prebuilt.yml up -d\`, then open \`http://127.0.0.1:8420/setup/\`
 "
 fi

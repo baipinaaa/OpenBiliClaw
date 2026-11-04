@@ -1628,15 +1628,15 @@ class RecommendationEngine:
 
         ``limit`` defaults to 200 — covers the candidate window that
         ``serve()`` actually pulls from, sized so a fresh-restart warm
-        completes in a few minutes against a slow local embedding
-        provider (Ollama). Idempotent: ``EmbeddingService.embed``
+        completes in a few minutes against a slow embedding provider.
+        Idempotent: ``EmbeddingService.embed``
         short-circuits on L2 hit.
 
         Return contract (lever 4 observability — let callers tell a benign
         cold start from a broken embedding backend):
           * ``>0`` — items warmed.
           * ``0``  — there WERE candidates but none embedded → the embedding
-            backend is unreachable (e.g. Ollama down). Worth retrying.
+            backend is unreachable. Worth retrying.
           * ``-1`` — nothing to warm (no embedding service, or pool empty);
             retrying is pointless — the cache lazy-fills as the pool fills.
         """
@@ -1654,7 +1654,7 @@ class RecommendationEngine:
         if warmed == 0:
             logger.warning(
                 "Pool MMR prewarm: 0/%d items embedded — the embedding backend "
-                "looks unreachable (e.g. Ollama down). Recommendation diversity "
+                "looks unreachable. Recommendation diversity "
                 "(MMR) degrades until it recovers; see embed-failure debug logs.",
                 len(candidates),
             )

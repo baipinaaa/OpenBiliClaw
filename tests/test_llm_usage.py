@@ -60,11 +60,6 @@ def test_estimate_cost_unknown_provider_uses_generic_fallback() -> None:
     assert cost > 0
 
 
-def test_estimate_cost_ollama_is_free() -> None:
-    """Local Ollama is treated as free (0 cost)."""
-    assert estimate_cost("ollama", "llama3", 100000, 50000) == 0.0
-
-
 def test_estimate_cost_handles_negative_token_counts() -> None:
     """Defensive: negative token values clamp to 0 instead of producing
     negative cost."""
@@ -170,8 +165,8 @@ def test_database_query_llm_usage_by_provider(tmp_path: Path) -> None:
         estimated_cost_cny=0.0042,
     )
     db.insert_llm_usage(
-        provider="ollama",
-        model="bge-m3",
+        provider="api_route",
+        model="cheap-mini",
         prompt_tokens=500,
         completion_tokens=0,
         estimated_cost_cny=0.0,
@@ -182,8 +177,8 @@ def test_database_query_llm_usage_by_provider(tmp_path: Path) -> None:
     assert rows[0]["provider"] == "deepseek"
     assert rows[0]["model"] == "deepseek-v4-flash"
     assert rows[0]["calls"] == 1
-    # Ollama has 0 cost — comes last
-    assert rows[-1]["provider"] == "ollama"
+    # The zero-cost row comes last
+    assert rows[-1]["provider"] == "api_route"
 
 
 def test_database_query_llm_usage_total(tmp_path: Path) -> None:

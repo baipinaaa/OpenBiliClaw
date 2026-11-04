@@ -25,8 +25,8 @@ async def test_production_tiktok_incremental_wiring_survives_reload_and_respects
     from openbiliclaw.sources.tiktok_tasks import TiktokTaskQueue
 
     config = Config(data_dir=str(tmp_path / "runtime"))
-    config.llm.default_provider = "ollama"
-    config.llm.ollama.model = "test-unused"
+    config.llm.default_provider = "deepseek"
+    config.llm.deepseek.api_key = "test-key"
     ctx = build_runtime_context(config)
     try:
         scheduler = ctx.runtime_controller.source_incremental_sync

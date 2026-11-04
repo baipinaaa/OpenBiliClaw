@@ -215,7 +215,6 @@ auto_sync_enabled = false
 | 键 | 类型 | 默认值 | 说明 |
 |----|------|--------|------|
 | `enabled` | bool | `false` | 是否期望系统登录后自动拉起 `openbiliclaw start`。可通过插件 / 桌面 Web 设置页或 `openbiliclaw autostart enable/disable` 修改 |
-| `manage_ollama` | bool | `true` | `start` 时如果检测到当前配置需要本机 Ollama，且 endpoint 是默认 `127.0.0.1:11434`，会在 Ollama 未运行时尝试后台拉起 `ollama serve`。自定义端口或远端 endpoint 只探测不拉起 |
 
 `save_config()` 默认会保留磁盘上已有的 `[autostart].enabled`，避免普通配置保存用陈旧快照覆盖用户刚从 API / CLI 改过的自启动开关。只有 `/api/autostart/apply` 和 `openbiliclaw autostart enable/disable` 会以 `autostart_authoritative=true` 权威写入该字段。
 
@@ -461,7 +460,7 @@ base_url = "https://api.deepseek.com"
 | 键 | 类型 | 默认值 | 说明 |
 |----|------|--------|------|
 | `name` | string | 实例 ID | 设置页显示名称，可重复 |
-| `provider_type` | string | `""` | 适配器类型：`openai` / `claude` / `gemini` / `deepseek` / `ollama` / `openrouter` / `orcarouter` / `requesty` / `api_route` / `cheaperinference` / `openai_compatible` |
+| `provider_type` | string | `""` | 适配器类型：`openai` / `claude` / `gemini` / `deepseek` / `openrouter` / `orcarouter` / `requesty` / `api_route` / `cheaperinference` / `openai_compatible` |
 | `enabled` | bool | `true` | 是否允许注册和引用；停用实例不能留在任何链里 |
 | `api_key` | string | `""` | 此实例自己的凭据；API 默认只回显掩码 |
 | `model` | string | `""` | 此实例固定使用的聊天模型 |
@@ -470,7 +469,6 @@ base_url = "https://api.deepseek.com"
 | `api_flavor` | string | `""` | OpenAI / OpenAI-compatible 的 `chat_completions` / `responses` 协议选择 |
 | `http_referer` / `x_title` | string | `""` | OpenRouter 可选归属请求头 |
 | `reasoning_effort` | string | `"medium"` | 支持该能力的适配器默认推理档位；空字符串表示不请求通用 effort（DeepSeek 例外：显式关闭 thinking） |
-| `num_ctx` | int | `0` | 仅 Ollama 使用；`0` 采用服务端默认上下文 |
 
 以下小节说明各 `provider_type` 的专属语义。
 
@@ -521,20 +519,6 @@ base_url = "https://api.deepseek.com"
 | `base_url` | string | `"https://api.deepseek.com"` | API 地址；可填 DeepSeek-compatible 中转 / 私有网关，registry 会把该值实际传给 SDK，并按这个 endpoint 决定直连或使用 `[network]` 代理 |
 | `reasoning_effort` | string | `"medium"` | 深度任务默认均衡档；DeepSeek 官方会把 portable `low/medium` 映射为 native `high`，`xhigh/max` 映射为 `max`。渠道型 discovery / recommendation / sources 调用仍按单次 `""` 真正关闭 thinking；手动设 `""` 可全局关闭 |
 
-#### Ollama（`provider_type = "ollama"`）
-
-| 键 | 类型 | 默认值 | 说明 |
-|----|------|--------|------|
-| `model` | string | `"qwen2.5:7b"` | 本地模型名称 |
-| `base_url` | string | `"http://127.0.0.1:11434/v1"` | Ollama OpenAI-compatible `/v1` 服务地址。默认用 `127.0.0.1`（而非 `localhost`）与 Ollama 只监听 IPv4 的默认行为对齐，避免 `localhost` 被解析到 IPv6 (`::1`) 导致连接超时 |
-| `num_ctx` | int | `0` | 上下文窗口 (tokens)。`0` = 用 Ollama 服务端默认值（通常 4096），走 `/v1` 兼容层。`>0`（推荐 `8192`）时聊天改走原生 `/api/chat` 端点并传 `options.num_ctx`——`/v1` 兼容层会静默丢弃 `num_ctx`，大批量 prompt 超 4096 即被截断、本地小模型输出无法解析的 JSON。仅 Ollama 生效 |
-
-> Ollama 不需要 API Key，适合本地开发测试。
-
-> **聊天模型必须明确填写：** `model` 为空时 Ollama 不会进入 chat registry，即使实例已启用也不会猜模型或回退到 `llama3`。只使用 Ollama `bge-m3` 做 embedding 时无需创建聊天实例；embedding 会走独立配置，不会触发聊天探针。
->
-> **`num_ctx` 为何重要：** Ollama 的 OpenAI 兼容 `/v1` 端点不接受 `num_ctx`，模型按服务端默认上下文（多为 4096）加载。发现循环里 discovery 批量评估 / 推荐文案批量生成等 prompt 很容易超 4096，被静默截断后小模型（如 `qwen:7b`）就会吐出非法 JSON、或为整批视频生成同一句重复文案。设 `num_ctx = 8192` 后，OpenBiliClaw 改用原生 `/api/chat` 端点（已实测 `context_length` 真正变为 8192）即可规避。
-
 #### OpenRouter（`provider_type = "openrouter"`）
 
 | 键 | 类型 | 默认值 | 说明 |
@@ -559,7 +543,7 @@ base_url = "https://api.deepseek.com"
 | `base_url` | string | `"https://api.orcarouter.ai/v1"` | OrcaRouter API 地址 |
 | `reasoning_effort` | string | `"medium"` | 保留以对齐统一配置面；网关把推理参数原样转发给上游路由，非推理模型会以 HTTP 400 拒绝，因此适配器**不发送** `reasoning_effort` / `reasoning`，推理模型使用自身默认档位 |
 
-> OrcaRouter 没有 embedding 接口；需要向量化时在 `[llm.embedding]` 独立配置 Ollama / Gemini / OpenAI 等。
+> OrcaRouter 没有 embedding 接口；需要向量化时在 `[llm.embedding]` 独立配置 Gemini / OpenAI 等。
 
 #### Requesty（`provider_type = "requesty"`）
 
@@ -572,7 +556,7 @@ base_url = "https://api.deepseek.com"
 | `base_url` | string | `"https://router.requesty.ai/v1"` | Requesty API 地址；数据需留在欧盟时可改为 `https://router.eu.requesty.ai/v1` |
 | `reasoning_effort` | string | `"medium"` | 保留以对齐统一配置面；适配器**不发送** `reasoning_effort` / `reasoning`，推理模型使用自身默认档位 |
 
-> 设置页「获取模型」会先列出 `GET /v1/models/managed` 的托管策略，再合并 `GET /v1/models` 的完整模型目录。Requesty 没有接入 embedding；需要向量化时在 `[llm.embedding]` 独立配置 Ollama / Gemini / OpenAI 等。
+> 设置页「获取模型」会先列出 `GET /v1/models/managed` 的托管策略，再合并 `GET /v1/models` 的完整模型目录。Requesty 没有接入 embedding；需要向量化时在 `[llm.embedding]` 独立配置 Gemini / OpenAI 等。
 
 #### API Route（`provider_type = "api_route"`）
 
@@ -629,15 +613,15 @@ Embedding 服务用于多个语义任务：discovery 内容兴趣预过滤、rec
 
 | 键 | 类型 | 默认值 | 说明 |
 |----|------|--------|------|
-| `provider` | string | `""` | 留空 = 不启用 embedding；不会跟随聊天调用链。可填 `"openai"` / `"gemini"` / `"ollama"` / `"openai_compatible"` / `"openrouter"` / **`"dashscope"`**（阿里百炼多模态向量）。Claude / DeepSeek 没有 embedding 接口；OpenRouter 必须显式配 `model` |
-| `model` | string | `"gemini-embedding-001"` | embedding 模型名；按 provider 自动填合理默认：`gemini → gemini-embedding-001` / `openai → text-embedding-3-small` / `ollama → bge-m3` / **`dashscope → qwen3-vl-embedding`**。`openrouter` / `openai_compatible` 无安全默认，需要显式指定 |
-| `api_key` | string | `""` | v0.3.32+ embedding 专属 API Key。默认不会借用 `[llm.<provider>].api_key`；只有 `fallback_enabled=true` 时才允许旧配置借用 chat-side 凭据并打一条 WARNING。Ollama 不需要 |
-| `base_url` | string | `""` | v0.3.32+ embedding 专属 base URL。留空使用 provider 默认值（OpenAI → `api.openai.com/v1`、Ollama → `localhost:11434/v1`、Gemini → 官方 API）；Gemini 可填代理地址 |
-| `output_dimensionality` | int | `1024` | embedding 目标向量维度。默认 1024，与本地 Ollama `bge-m3` 对齐；Gemini 会传 `output_dimensionality`，`provider = "openai"` 且模型为 `text-embedding-3-*` 时会传 `dimensions`。Ollama / OpenRouter / 泛 OpenAI-compatible 等未确认支持的后端不传参数，也不会把 cache 标成伪维度。设为 `0` 表示使用 provider 原生默认维度 |
+| `provider` | string | `""` | 留空 = 不启用 embedding；不会跟随聊天调用链。可填 `"openai"` / `"gemini"` / `"openai_compatible"` / `"openrouter"` / **`"dashscope"`**（阿里百炼多模态向量）。Claude / DeepSeek 没有 embedding 接口；OpenRouter 必须显式配 `model` |
+| `model` | string | `"gemini-embedding-001"` | embedding 模型名；按 provider 自动填合理默认：`gemini → gemini-embedding-001` / `openai → text-embedding-3-small` / **`dashscope → qwen3-vl-embedding`**。`openrouter` / `openai_compatible` 无安全默认，需要显式指定 |
+| `api_key` | string | `""` | v0.3.32+ embedding 专属 API Key。默认不会借用 `[llm.<provider>].api_key`；只有 `fallback_enabled=true` 时才允许旧配置借用 chat-side 凭据并打一条 WARNING |
+| `base_url` | string | `""` | v0.3.32+ embedding 专属 base URL。留空使用 provider 默认值（OpenAI → `api.openai.com/v1`、Gemini → 官方 API）；Gemini 可填代理地址 |
+| `output_dimensionality` | int | `1024` | embedding 目标向量维度。默认 1024，与 `gemini-embedding-001` 对齐；Gemini 会传 `output_dimensionality`，`provider = "openai"` 且模型为 `text-embedding-3-*` 时会传 `dimensions`。OpenRouter / 泛 OpenAI-compatible 等未确认支持的后端不传参数，也不会把 cache 标成伪维度。设为 `0` 表示使用 provider 原生默认维度 |
 | `similarity_threshold` | float | `0.82` | 余弦相似度阈值，超过即视为"同主题" |
 | `fallback_enabled` | bool | `false` | 旧兼容开关；允许备选类型借用第一个同类型、已启用聊天实例的凭据 |
-| `fallback_provider` | string | `""` | 第二个 embedding 备选 Provider。留空 = 不 fallback；可填 `openai` / `gemini` / `ollama` / `openai_compatible`，不会再自动走 `ollama → gemini → openai` 链 |
-| `multimodal_enabled` | bool | `false` | 是否启用**封面图单独** embedding（image-only 向量，与文本同一模型空间），供 recommendation `precompute_delight_scores` 的封面视觉加成消费。默认关闭。开启后仍需当前 `model` 支持图像（如 `gemini-embedding-2`，或 `dashscope` + `qwen3-vl-embedding`）；本地 `ollama` + `bge-m3` 等纯文本模型会自动跳过，不报错。与 `[discovery].multimodal_evaluation_enabled`（vision LLM 评估）相互独立。**插件设置页与桌面 Web 设置的 Embedding 段均可直接勾选**（`dashscope` 也已加入 provider 下拉），无需手改 TOML |
+| `fallback_provider` | string | `""` | 第二个 embedding 备选 Provider。留空 = 不 fallback；可填 `openai` / `gemini` / `openai_compatible`，不会自动串成多级链 |
+| `multimodal_enabled` | bool | `false` | 是否启用**封面图单独** embedding（image-only 向量，与文本同一模型空间），供 recommendation `precompute_delight_scores` 的封面视觉加成消费。默认关闭。开启后仍需当前 `model` 支持图像（如 `gemini-embedding-2`，或 `dashscope` + `qwen3-vl-embedding`）；纯文本 embedding 模型会自动跳过，不报错。与 `[discovery].multimodal_evaluation_enabled`（vision LLM 评估）相互独立。**插件设置页与桌面 Web 设置的 Embedding 段均可直接勾选**（`dashscope` 也已加入 provider 下拉），无需手改 TOML |
 | `cache_max_bytes` | int | `0` | L2 持久化缓存（`data/embedding_cache.db`）磁盘预算，单位字节；`0` = 不设上限（默认）。向量本身已按紧凑 float32 二进制存储（4096 维约 16 KiB/行），此上限进一步约束长跑 discovery/warmup 的磁盘增长：占用超过 `cache_max_bytes × cache_high_watermark` 时开始淘汰（先删失效 namespace / 旧 legacy 行，再按最近访问时间淘汰 active namespace 最旧行），直到降到 `cache_max_bytes × cache_low_watermark`。缓存可重建，淘汰只影响冷数据。建议值 `536870912`（512 MiB） |
 | `cache_high_watermark` | float | `0.9` | 容量淘汰触发水位（占用 / 预算 的比例，0..1），需 `>= cache_low_watermark` |
 | `cache_low_watermark` | float | `0.7` | 容量淘汰停止水位（占用 / 预算 的比例，0..1），需 `<= cache_high_watermark` |
@@ -720,36 +704,6 @@ Content-Type: application/json
 ```
 
 探测失败也会返回 `200` + `ok=false`，让前端以行内状态显示错误原因；只有请求体 schema 错误等 API 层问题才按常规 4xx 处理。
-
-#### 启用本地 Ollama embedding（v0.3.0+，**v0.3.3 起真实生效**）
-
-> ⚠️ **如果你装的是 v0.3.0~v0.3.2**：`setup-embedding` 当时虽然写了 `[llm.embedding] provider="ollama"`，但 LLM 注册表静默回退到 default provider，embedding 实际仍走 Gemini。
-> **升级到 v0.3.3+ 重启 backend** 即可生效，不需要改配置；当前版本可再跑一次 `openbiliclaw setup-embedding`，向导会把 provider / model / base_url 写入独立的 `[llm.embedding]` 段。
-
-不想再多一份 embedding API Key、或要支持离线，可以用 Ollama + bge-m3 跑本地 embedding：
-
-```bash
-# 1. 装 Ollama（一次性）
-# Mac
-# 安装并启动官方 Ollama.app（会创建 ollama 命令行入口）
-open https://ollama.com/download/mac
-# Windows: 从 https://ollama.com/download 下载安装包
-# Linux
-curl -fsSL https://ollama.com/install.sh | sh && ollama serve &
-
-# 2. 跑向导自动拉模型 + 写配置
-openbiliclaw setup-embedding
-```
-
-或手动改 `config.toml`：
-
-```toml
-[llm.embedding]
-provider = "ollama"
-model = "bge-m3"
-```
-
-CPU 即可跑（~100-200ms/次），跨 Mac / Win / Linux 一致。
 
 ### `[llm.routes.soul]` / `discovery` / `recommendation` / `evaluation`
 
@@ -900,7 +854,7 @@ iframe 打开笔记页（单任务最多 5 条、并发 2），读取 `__INITIAL
 
 > 与 `[bilibili].proxy` 的区别：`[network].proxy` 是「海外出口」，`[bilibili].proxy` 是「B站专用」，两者语义相反、互不影响。
 >
-> **国内直连隔离**：B站 / 抖音 / 微博 / Ollama / 国内 CDN 图片缓存等所有 `trust_env=False` 客户端**永远不使用**此代理（继承代理曾触发 B站 风控，`df626f3f`）。该隔离由 `tests/test_network_proxy_isolation.py` 与微博 client 测试守卫。
+> **国内直连隔离**：B站 / 抖音 / 微博 / 国内 CDN 图片缓存等所有 `trust_env=False` 客户端**永远不使用**此代理（继承代理曾触发 B站 风控，`df626f3f`）。该隔离由 `tests/test_network_proxy_isolation.py` 与微博 client 测试守卫。
 >
 > **国内大模型网关豁免（v0.3.166）**：即使 `mode` 为 `system` / `custom`，指向国内网关的 LLM 请求也会被识别并**强制直连**——DeepSeek（`api.deepseek.com`）、商汤 SenseNova（`.cn`）、通义千问（`aliyuncs.com`）、智谱、文心千帆、混元、火山方舟、Kimi、MiniMax、阶跃、百川、硅基流动、无问芯穹、PPIO 等，以及 `localhost` / 内网自建端点（cpa、vLLM 等）。识别覆盖 `.cn` 顶级域、已知厂商的非 `.cn` 域名白名单、loopback / 私有 / link-local IP，由 `openbiliclaw.network.is_domestic_endpoint` 裁决。避免「为连墙外模型开了代理 → 国内模型请求被绕道境外 → 总是超时」。豁免按 endpoint 生效，genuine 墙外网关仍走上面的代理策略。
 >

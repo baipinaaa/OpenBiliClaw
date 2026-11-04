@@ -60,7 +60,7 @@ def test_record_appends_and_snapshot_returns_newest_first() -> None:
         category="embedding",
         code="provider_error",
         message="empty vector",
-        source="bge-m3",
+        source="gemini-embedding-001",
         severity="error",
     )
 
@@ -326,7 +326,7 @@ async def test_embedding_single_failure_records_warning_alert() -> None:
     provider = _FailingEmbedProvider(error=RuntimeError("ConnectError"))
     service = EmbeddingService(
         provider,  # type: ignore[arg-type]
-        model="bge-m3",
+        model="gemini-embedding-001",
         breaker_failure_threshold=3,
     )
 
@@ -338,7 +338,7 @@ async def test_embedding_single_failure_records_warning_alert() -> None:
     assert row["category"] == "embedding"
     assert row["code"] == "provider_error"
     assert row["severity"] == "warning"
-    assert "bge-m3" in row["source"]
+    assert "gemini-embedding-001" in row["source"]
 
 
 @pytest.mark.asyncio
@@ -348,7 +348,7 @@ async def test_embedding_breaker_trip_records_error_alert() -> None:
     provider = _FailingEmbedProvider(vector=[])
     service = EmbeddingService(
         provider,  # type: ignore[arg-type]
-        model="bge-m3",
+        model="gemini-embedding-001",
         breaker_failure_threshold=2,
     )
 

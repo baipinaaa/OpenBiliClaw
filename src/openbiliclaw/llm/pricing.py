@@ -15,7 +15,6 @@ Source notes (last refreshed 2026-05):
 - Gemini: AI Studio pricing × USD/CNY ≈ 7.2
 - OpenRouter: variable per-route; the ``default`` rate is a midrange
   placeholder. For accurate per-route tracking, override at call site.
-- Ollama: local inference, treated as free.
 
 **Prompt-cache discount** (v0.3.28+): when a portion of input tokens is
 served from provider-side prompt cache, the cached portion is billed at
@@ -49,7 +48,6 @@ CACHE_HIT_DISCOUNT: dict[str, float] = {
     "requesty": 0.50,
     "api_route": 0.50,
     "cheaperinference": 0.50,
-    "ollama": 0.0,  # local; cached or not, cost is 0
 }
 
 # (input_rate, output_rate) — CNY per 1,000 tokens.
@@ -132,9 +130,9 @@ PRICING: dict[str, dict[str, tuple[float, float]]] = {
         "default": (0.0011, 0.0029),
     },
     "openrouter": {
-        # OpenRouter routes vary widely (anywhere from "free" relay of
-        # local Ollama to GPT-4o-class). Without knowing the route, use
-        # a midrange estimate and let users override per-call.
+        # OpenRouter routes vary widely (anywhere from free relays to
+        # GPT-4o-class). Without knowing the route, use a midrange
+        # estimate and let users override per-call.
         #
         # Exception: the advertised MiniMax Flash route has a published
         # list price ($0.15/$0.60 per M, 2026-10-23), so estimating it at
@@ -165,9 +163,6 @@ PRICING: dict[str, dict[str, tuple[float, float]]] = {
         # model, use the same midrange estimate as OpenRouter.
         "default": (0.005, 0.015),
     },
-    "ollama": {
-        "default": (0.0, 0.0),
-    },
 }
 
 
@@ -194,8 +189,6 @@ def estimate_cost(
     0.011
     >>> estimate_cost("deepseek", "deepseek-v4-flash", 5000, 3000, cached_tokens=4000)
     0.0074
-    >>> estimate_cost("ollama", "llama3", 10000, 5000)
-    0.0
     """
     provider_rates = PRICING.get(provider, {})
     rates = provider_rates.get(model)

@@ -45,7 +45,6 @@
       updateStatus: "/update-status",
       updateCheck: "/update/check",
       updateApply: "/update/apply",
-      embeddingRepair: "/embedding/repair",
       config: "/config",
       migrationExport: "/migration/export",
       migrationImport: "/migration/import",
@@ -305,7 +304,7 @@
       already_running: "初始化正在进行中。",
       bilibili_not_logged_in: "还没检测到 B 站登录。",
       llm_not_ready: "AI 服务还没配好或当前不可用。",
-      embedding_not_ready: "向量模型还没就绪，请等待 bge-m3 下载完成或修复 Ollama 后重试。",
+      embedding_not_ready: "向量模型还没就绪，请到设置页检查 Embedding Provider 的 API Key / base_url 后重试。",
       already_initialized: "已经初始化过了；如需重建，请到设置页。",
       local_only: "只能在本机发起初始化。",
       no_sources_selected: "至少勾选一个数据来源。",
@@ -2140,34 +2139,6 @@
       return (Array.isArray(keys) ? keys : []).map((key) => byKey.get(key) || key);
     }
 
-    function embeddingPhaseHint(prereq) {
-      return prereq?.ollama_phase === "starting" ? "Ollama 启动中…" : "";
-    }
-
-    function embeddingPullProgressView(status) {
-      const prereq = status?.prerequisites || {};
-      const active = Boolean(prereq.embedding_repair_running || prereq.embedding_check === "repairing");
-      const completed = Number(prereq.embedding_repair_completed || 0);
-      const total = Number(prereq.embedding_repair_total || 0);
-      const pct = total > 0
-        ? Math.max(1, Math.min(99, Math.round((completed * 100) / total)))
-        : active ? 1 : 0;
-      const label = String(prereq.embedding_pull_status || prereq.embedding_detail || "").trim() || "正在下载向量模型…";
-      return { active, pct, label };
-    }
-
-    // Embedding download is process-global work and can begin before guided
-    // init reserves a run. It still needs the same status poll while the UI is
-    // idle, otherwise the first CTA click becomes the only refresh trigger.
-    function embeddingPullNeedsPolling(status) {
-      return Boolean(
-        status &&
-          !status.running &&
-          !status.initialized &&
-          embeddingPullProgressView(status).active,
-      );
-    }
-
     function buildInitChecklist(status, selected = null) {
       const prereq = status?.prerequisites || {};
       const enabled = initEnabledPlatforms(status);
@@ -2175,13 +2146,7 @@
       // B 站登录只在勾选了 B 站时才是硬前置。
       const biliSelected = selectedSources ? selectedSources.includes("bilibili") : true;
       const embeddingRequired = Boolean(prereq.embedding_required);
-      const embeddingHint = [
-        embeddingPhaseHint(prereq),
-        String(prereq.embedding_pull_status || prereq.embedding_detail || "").trim()
-      ].filter(Boolean).join(" ");
-      const embeddingCheck = String(prereq.embedding_check || "");
-      const embeddingAutoRepairable = ["model_missing", "model_broken", "model_path_encoding"].includes(embeddingCheck);
-      const embeddingGuidanceOnly = ["disk_full", "network", "model_oom", "provider_error"].includes(embeddingCheck);
+      const embeddingHint = String(prereq.embedding_detail || "").trim();
       // label 必须反映探测的真实结果——固定写“已登录”的条目名一旦不再是红 ✗，
       // 用户就会把它读成“已经登录了”。
       const biliOk = Boolean(prereq.bilibili_logged_in);
@@ -2209,20 +2174,13 @@
           label: embeddingRequired ? "向量模型可用" : "向量模型可用（推荐，非必须）",
           ok: Boolean(prereq.embedding_ready),
           hard: embeddingRequired,
-          // Backend-classified cause (embedding_detail, v0.3.155+):
-          // Ollama 未运行 / 缺模型 / 模型损坏 / 配置无效 / repairing（下载中，
-          // detail 带实时百分比，3s 轮询自动刷新）。
+          // Backend-classified cause (embedding_detail, v0.3.155+): 配置无效 /
+          // provider 不可达 / 探测失败。
           hint:
             embeddingHint ||
             (embeddingRequired
-              ? "本地 Ollama + bge-m3 需要完成一次真实向量请求；模型仍在下载或服务异常时请稍后重试。"
-              : "未配置 embedding 时可以先初始化；推荐去重和语义检索会弱一些。"),
-          // One-click server-side `ollama pull`; hidden while repairing (the
-          // hint already shows live percent).
-          repairable: embeddingAutoRepairable || embeddingGuidanceOnly,
-          repairLabel: embeddingCheck === "model_path_encoding"
-            ? "迁移模型目录并修复"
-            : embeddingGuidanceOnly ? "重新检测" : "自动下载向量模型"
+              ? "Embedding provider 需要完成一次真实向量请求；请检查 API Key / base_url 与模型名后重试。"
+              : "未配置 embedding 时可以先初始化；推荐去重和语义检索会弱一些。")
         },
         {
           key: "platforms",
@@ -2472,36 +2430,9 @@
         .map((row) => {
           const mark = row.ok ? "✓" : row.hard ? "✗" : "•";
           const hint = !row.ok && row.hint ? `<p class="init-hint">${escapeHtml(row.hint)}</p>` : "";
-          const repair = !row.ok && row.repairable
-            ? `<button class="small-btn init-repair-btn" type="button" data-embedding-repair>${escapeHtml(row.repairLabel || "自动下载向量模型")}</button>`
-            : "";
-          return `<li class="${row.ok ? "init-ok" : "init-missing"} ${row.hard ? "init-hard" : "init-soft"}"><div class="init-row"><span class="init-mark">${mark}</span><span>${escapeHtml(row.label)}</span></div>${hint}${repair}</li>`;
+          return `<li class="${row.ok ? "init-ok" : "init-missing"} ${row.hard ? "init-hard" : "init-soft"}"><div class="init-row"><span class="init-mark">${mark}</span><span>${escapeHtml(row.label)}</span></div>${hint}</li>`;
         })
         .join("");
-    }
-
-    // Kick the server-side model pull; the 3s init-status poll then renders
-    // live percent on the checklist row (embedding_check="repairing"). The
-    // checklist is re-rendered per poll, so the handler is DELEGATED from the
-    // <ul> (bound once in renderInitOnboarding) instead of per-button.
-    async function handleEmbeddingRepairClick(btn) {
-      const originalLabel = btn.textContent || "自动下载向量模型";
-      btn.disabled = true;
-      btn.textContent = originalLabel === "重新检测" ? "检测中…" : "启动下载…";
-      try {
-        await requestJsonStrict(ENDPOINTS.embeddingRepair, { method: "POST" });
-      } catch (error) {
-        // 409 already_running means a pull is in flight — that's the goal
-        // state; every other error re-enables the button with the reason.
-        if (error?.status !== 409 || error?.details?.error !== "already_running") {
-          btn.disabled = false;
-          btn.textContent = originalLabel;
-          state.initReason = error?.details?.detail || error?.message || "向量模型修复启动失败。";
-          renderInitOnboarding();
-          return;
-        }
-      }
-      void refreshInitStatus({ schedule: true });
     }
 
     function initSourcesMarkup() {
@@ -2607,12 +2538,9 @@
       const status = state.initStatus;
       const progress = initProgressView(status);
       const isRunning = Boolean(status?.running);
-      const embeddingPull = embeddingPullProgressView(status);
-      const displayProgress = embeddingPull.active && !isRunning
-          ? { active: true, failed: false, pct: embeddingPull.pct, label: embeddingPull.label, stageLabel: "" }
-        : progress;
+      const displayProgress = progress;
       const alreadyInitialized = Boolean(status?.initialized);
-      const showProgress = isRunning || displayProgress.failed || embeddingPull.active;
+      const showProgress = isRunning || displayProgress.failed;
       const reason = displayProgress.failed
           ? (state.initReason || initFailureText(status, displayProgress))
           : (state.initReason || initStatusReasonText(status) || "");
@@ -2680,12 +2608,6 @@
       });
       grid.querySelector('[data-init-action="settings"]')?.addEventListener("click", () => {
         openSettingsPage("sources");
-      });
-      // Delegated: the checklist's innerHTML is replaced on every status
-      // poll, so listeners on the buttons themselves would be lost.
-      grid.querySelector(".init-onboarding .init-checklist")?.addEventListener("click", (event) => {
-        const btn = event.target.closest?.("[data-embedding-repair]");
-        if (btn) void handleEmbeddingRepairClick(btn);
       });
       grid.querySelectorAll("input[data-init-source]").forEach((input) => {
         input.addEventListener("change", () => {
@@ -2798,9 +2720,7 @@
           return;
         }
         renderAll(initStatusRenderOptions());
-        if (embeddingPullNeedsPolling(status)) {
-          scheduleInitStatusRefresh(schedule ? INIT_STATUS_POLL_MS : INIT_STATUS_WATCHDOG_MS);
-        } else if (!status?.running) {
+        if (!status?.running) {
           clearInitPolling();
         }
       } catch (error) {
@@ -2844,12 +2764,6 @@
         state.initReason = status?.partial_success ? initStatusReasonText(status) : "";
         scheduleBackendHydration();
         renderAll();
-        return;
-      }
-      if (embeddingPullNeedsPolling(status)) {
-        state.initBusy = false;
-        renderAll();
-        scheduleInitStatusRefresh(INIT_STATUS_POLL_MS);
         return;
       }
       if (!selected.length) {
@@ -10220,9 +10134,8 @@ ${cardFeedbackBarHtml()}`;
         return "当前环境不能在这里修改开机自启动。";
       }
       function enabledHint(status) {
-        const ollama = status?.manage_ollama ? "；本机 Ollama 配置会在需要时顺带拉起" : "";
-        if (status?.registered === false) return `配置已开启，但系统注册缺失；下次后端启动会尝试修复${ollama}。`;
-        return `已开启：下次登录系统会拉起后端，不启停当前进程${ollama}。`;
+        if (status?.registered === false) return "配置已开启，但系统注册缺失；下次后端启动会尝试修复。";
+        return "已开启：下次登录系统会拉起后端，不启停当前进程。";
       }
       function activeHint(status) {
         if (!status) return "无法读取开机自启动状态。";
@@ -10279,7 +10192,6 @@ ${cardFeedbackBarHtml()}`;
       requesty: "Requesty",
     api_route: "API Route",
       cheaperinference: "Cheaper Inference",
-      ollama: "Ollama",
       openai_compatible: "OpenAI-compatible"
     };
     const LLM_PROVIDER_DEFAULTS = {
@@ -10292,7 +10204,6 @@ ${cardFeedbackBarHtml()}`;
       requesty: { model: "openai/gpt-4o-mini", base_url: "https://router.requesty.ai/v1" },
     api_route: { model: "gpt-5.5", base_url: "https://global.api-route.com/v1" },
       cheaperinference: { model: "gpt-5.4-mini", base_url: "https://api.cheaperinference.com/v1" },
-      ollama: { model: "qwen2.5:7b", base_url: "http://127.0.0.1:11434/v1" },
       openai_compatible: { model: "", base_url: "" }
     };
     const LLM_MODEL_DISCOVERY_PROVIDERS = new Set([
@@ -10303,7 +10214,6 @@ ${cardFeedbackBarHtml()}`;
       "requesty",
       "api_route",
       "cheaperinference",
-      "ollama",
       "openai_compatible"
     ]);
     const LLM_MODULE_UI = {
@@ -10336,8 +10246,7 @@ ${cardFeedbackBarHtml()}`;
           api_flavor: String(rawInstance.api_flavor || ""),
           http_referer: String(rawInstance.http_referer || ""),
           x_title: String(rawInstance.x_title || ""),
-          reasoning_effort: String(rawInstance.reasoning_effort || ""),
-          num_ctx: Number.parseInt(rawInstance.num_ctx, 10) || 0
+          reasoning_effort: String(rawInstance.reasoning_effort || "")
         };
       }
       const defaultChain = Array.from(new Set((llm?.default_chain || []).map((item) => String(item || "").trim().toLowerCase()).filter(Boolean)));
@@ -10630,10 +10539,7 @@ ${cardFeedbackBarHtml()}`;
           : "",
         reasoning_effort: ["openai", "claude", "gemini", "deepseek", "openrouter", "orcarouter", "openai_compatible"].includes(providerType)
           ? getInput("llmInstanceReasoning").trim()
-          : "",
-        num_ctx: providerType === "ollama"
-          ? Math.max(0, getIntInput("llmInstanceNumCtx", 0))
-          : 0
+          : ""
       };
       return {
         instanceId,
@@ -10705,7 +10611,6 @@ ${cardFeedbackBarHtml()}`;
           (kind === "openai-auth" && providerType === "openai") ||
           (kind === "openai-protocol" && ["openai", "openai_compatible"].includes(providerType)) ||
           (kind === "reasoning" && ["openai", "claude", "gemini", "deepseek", "openrouter", "orcarouter", "openai_compatible"].includes(providerType)) ||
-          (kind === "ollama" && providerType === "ollama") ||
           (kind === "openrouter" && providerType === "openrouter");
         field.hidden = !visible;
       });
@@ -10734,7 +10639,6 @@ ${cardFeedbackBarHtml()}`;
       setSelect("llmInstanceAuthMode", instance?.auth_mode || "api_key");
       setSelect("llmInstanceApiFlavor", instance?.api_flavor || "");
       setInput("llmInstanceReasoning", instance?.reasoning_effort || "");
-      setInput("llmInstanceNumCtx", instance?.num_ctx || 0);
       setInput("llmInstanceReferer", instance?.http_referer || "");
       setInput("llmInstanceTitle", instance?.x_title || "");
       $("#llmInstanceFormError").textContent = "";
@@ -10801,7 +10705,7 @@ ${cardFeedbackBarHtml()}`;
       const effectiveKey = $("#llmInstanceClearApiKey")?.checked
         ? ""
         : typedKey || current.api_key || "";
-      if (enabled && !["ollama", "gemini"].includes(providerType) && !(providerType === "openai" && authMode === "codex_oauth") && !effectiveKey) {
+      if (enabled && providerType !== "gemini" && !(providerType === "openai" && authMode === "codex_oauth") && !effectiveKey) {
         error.textContent = "启用的远端实例需要 API Key。";
         $("#llmInstanceApiKey")?.focus();
         return;
@@ -10821,8 +10725,7 @@ ${cardFeedbackBarHtml()}`;
         api_flavor: ["openai", "openai_compatible"].includes(providerType) ? getInput("llmInstanceApiFlavor") : "",
         http_referer: providerType === "openrouter" ? getInput("llmInstanceReferer").trim() : "",
         x_title: providerType === "openrouter" ? getInput("llmInstanceTitle").trim() : "",
-        reasoning_effort: ["openai", "claude", "gemini", "deepseek", "openrouter", "orcarouter", "openai_compatible"].includes(providerType) ? getInput("llmInstanceReasoning") : "",
-        num_ctx: providerType === "ollama" ? Math.max(0, getIntInput("llmInstanceNumCtx", 0)) : 0
+        reasoning_effort: ["openai", "claude", "gemini", "deepseek", "openrouter", "orcarouter", "openai_compatible"].includes(providerType) ? getInput("llmInstanceReasoning") : ""
       };
       closeLlmInstanceDialog();
       renderLlmRouting();
@@ -12151,7 +12054,7 @@ ${cardFeedbackBarHtml()}`;
         // Re-attach the init poll if a run is live at load time. Hydrate only
         // fetches init-status once, while the poll observes quiet heartbeats
         // when runtime events are unavailable.
-        if (snapshot.running || embeddingPullNeedsPolling(snapshot)) {
+        if (snapshot.running) {
           scheduleInitStatusRefresh(INIT_STATUS_POLL_MS);
         }
       }
@@ -13033,8 +12936,8 @@ ${cardFeedbackBarHtml()}`;
     async function probeConfigService(kind, config, instanceId = "") {
       return await requestJsonStrict(ENDPOINTS.configProbe, {
         method: "POST",
-        // Backend allows a bounded 120s probe so cold local Ollama models can
-        // finish their startup retry window. The browser must outlive it.
+        // Backend allows a bounded 120s probe so a cold remote endpoint can
+        // finish its startup retry window. The browser must outlive it.
         timeoutMs: 125000,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind, instance_id: String(instanceId || ""), config })

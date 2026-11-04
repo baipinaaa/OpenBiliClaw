@@ -17,7 +17,6 @@ from .base import (
 from .cheaperinference_provider import CheaperInferenceProvider
 from .claude_provider import ClaudeProvider
 from .gemini_provider import GeminiProvider
-from .ollama_provider import OllamaProvider
 from .openai_provider import DeepSeekProvider, OpenAIProvider
 from .openrouter_provider import OpenRouterProvider
 from .orcarouter_provider import OrcaRouterProvider
@@ -51,7 +50,6 @@ __all__ = [
     "LLMResponse",
     "LLMResponseError",
     "LLMTimeoutError",
-    "OllamaProvider",
     "OpenAIProvider",
     "OpenRouterProvider",
     "OrcaRouterProvider",

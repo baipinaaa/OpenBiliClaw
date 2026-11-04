@@ -181,8 +181,8 @@ def test_reddit_source_status_uses_extension_backend_without_command_probe(
     credential_file = tmp_path / "rdt-cli" / "credential.json"
     cfg = Config(
         llm=LLMConfig(
-            default_provider="ollama",
-            ollama=LLMProviderConfig(model="llama3", base_url="http://localhost:11434"),
+            default_provider="openai",
+            openai=LLMProviderConfig(api_key="test-key"),
         )
     )
     cfg.sources.reddit.enabled = True
@@ -224,8 +224,8 @@ def test_reddit_source_status_uses_local_rdt_credential_without_command_probe(
     project_root = tmp_path / "runtime"
     cfg = Config(
         llm=LLMConfig(
-            default_provider="ollama",
-            ollama=LLMProviderConfig(model="llama3", base_url="http://localhost:11434"),
+            default_provider="openai",
+            openai=LLMProviderConfig(api_key="test-key"),
         )
     )
     cfg.sources.reddit.enabled = True
@@ -261,8 +261,8 @@ def test_put_config_preserves_reddit_extension_backend(
     project_root = tmp_path / "runtime"
     cfg = Config(
         llm=LLMConfig(
-            default_provider="ollama",
-            ollama=LLMProviderConfig(model="llama3", base_url="http://localhost:11434"),
+            default_provider="openai",
+            openai=LLMProviderConfig(api_key="test-key"),
         )
     )
     save_config(cfg, project_root / "config.toml")

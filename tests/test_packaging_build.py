@@ -356,102 +356,6 @@ def test_make_macos_dmg_stages_first_launch_guidance(tmp_path: Path, monkeypatch
     assert dmg.exists()
 
 
-def test_find_ollama_binary_prefers_explicit_path(tmp_path: Path, monkeypatch) -> None:
-    fake = tmp_path / "ollama"
-    fake.write_text("#!/bin/sh\n", encoding="utf-8")
-    monkeypatch.delenv("OPENBILICLAW_OLLAMA_BIN", raising=False)
-
-    assert build_module.find_ollama_binary(str(fake)) == fake.resolve()
-
-
-def test_find_ollama_binary_uses_env_when_no_explicit(tmp_path: Path, monkeypatch) -> None:
-    fake = tmp_path / "ollama"
-    fake.write_text("#!/bin/sh\n", encoding="utf-8")
-    monkeypatch.setenv("OPENBILICLAW_OLLAMA_BIN", str(fake))
-
-    assert build_module.find_ollama_binary() == fake.resolve()
-
-
-def test_find_ollama_binary_returns_none_when_absent(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.delenv("OPENBILICLAW_OLLAMA_BIN", raising=False)
-    monkeypatch.setenv("PATH", str(tmp_path))  # empty dir → ollama not on PATH
-
-    assert build_module.find_ollama_binary("/nonexistent/ollama") is None
-
-
-def test_bundle_ollama_binary_copies_into_onedir_with_sibling_lib(tmp_path: Path) -> None:
-    src_dir = tmp_path / "src"
-    (src_dir / "lib" / "ollama").mkdir(parents=True)
-    ollama = src_dir / "ollama"
-    ollama.write_text("binary\n", encoding="utf-8")
-    (src_dir / "lib" / "ollama" / "runner").write_text("r\n", encoding="utf-8")
-
-    dist = tmp_path / "dist"
-    (dist / "OpenBiliClaw").mkdir(parents=True)
-
-    written = build_module.bundle_ollama_binary(dist, ollama, platform_name="Windows")
-
-    dest = dist / "OpenBiliClaw" / "ollama.exe"
-    assert dest in written
-    assert dest.exists()
-    # Windows ollama needs its runner libs carried along.
-    assert (dist / "OpenBiliClaw" / "lib" / "ollama" / "runner").exists()
-
-
-def test_bundle_ollama_binary_targets_app_resources_on_macos(tmp_path: Path) -> None:
-    src_dir = tmp_path / "src"
-    src_dir.mkdir()
-    src = src_dir / "ollama"
-    src.write_text("bin\n", encoding="utf-8")
-    llama_server = src_dir / "llama-server"
-    llama_server.write_text("runner\n", encoding="utf-8")
-    llama_quantize = src_dir / "llama-quantize"
-    llama_quantize.write_text("quantize\n", encoding="utf-8")
-    (src_dir / "libllama-server-impl.dylib").write_text("impl\n", encoding="utf-8")
-    (src_dir / "libggml.dylib").write_text("ggml\n", encoding="utf-8")
-    (src_dir / "libggml-cpu-x64.so").write_text("cpu\n", encoding="utf-8")
-    mlx_dir = src_dir / "mlx_metal_v3"
-    mlx_dir.mkdir()
-    (mlx_dir / "kernels.metallib").write_text("metal\n", encoding="utf-8")
-    dist = tmp_path / "dist"
-    (dist / "OpenBiliClaw").mkdir(parents=True)
-    (dist / "OpenBiliClaw.app" / "Contents" / "Resources").mkdir(parents=True)
-
-    written = build_module.bundle_ollama_binary(dist, src, platform_name="Darwin")
-
-    assert (dist / "OpenBiliClaw" / "ollama") in written
-    assert (dist / "OpenBiliClaw.app" / "Contents" / "Resources" / "ollama") in written
-    assert (dist / "OpenBiliClaw" / "llama-server") in written
-    assert (dist / "OpenBiliClaw.app" / "Contents" / "Resources" / "llama-server") in written
-    assert (dist / "OpenBiliClaw" / "libllama-server-impl.dylib") in written
-    assert (
-        dist / "OpenBiliClaw.app" / "Contents" / "Resources" / "libllama-server-impl.dylib"
-    ) in written
-    assert (dist / "OpenBiliClaw" / "llama-server").exists()
-    assert (dist / "OpenBiliClaw.app" / "Contents" / "Resources" / "llama-server").exists()
-    assert (dist / "OpenBiliClaw" / "llama-quantize").exists()
-    assert (dist / "OpenBiliClaw.app" / "Contents" / "Resources" / "llama-quantize").exists()
-    assert (dist / "OpenBiliClaw" / "libggml.dylib").exists()
-    assert (dist / "OpenBiliClaw.app" / "Contents" / "Resources" / "libggml-cpu-x64.so").exists()
-    assert (dist / "OpenBiliClaw" / "mlx_metal_v3" / "kernels.metallib").exists()
-    assert (
-        dist / "OpenBiliClaw.app" / "Contents" / "Resources" / "mlx_metal_v3" / "kernels.metallib"
-    ).exists()
-
-
-def test_bundle_ollama_binary_rejects_incomplete_macos_runtime(tmp_path: Path) -> None:
-    src_dir = tmp_path / "src"
-    src_dir.mkdir()
-    src = src_dir / "ollama"
-    src.write_text("bin\n", encoding="utf-8")
-    (src_dir / "llama-server").write_text("runner\n", encoding="utf-8")
-    dist = tmp_path / "dist"
-    (dist / "OpenBiliClaw.app" / "Contents" / "Resources").mkdir(parents=True)
-
-    with pytest.raises(RuntimeError, match="libllama-server-impl.dylib"):
-        build_module.bundle_ollama_binary(dist, src, platform_name="Darwin")
-
-
 def test_repair_macos_ad_hoc_signature_signs_then_verifies(tmp_path: Path, monkeypatch) -> None:
     app_bundle = tmp_path / "OpenBiliClaw.app"
     app_bundle.mkdir()
@@ -487,21 +391,9 @@ def test_macos_build_repairs_signature_after_bundle_mutations_before_archives() 
 
     sign_index = build_block.index("repair_macos_ad_hoc_signature(app_bundle)")
 
-    assert sign_index > build_block.index("bundle_ollama_binary(")
+    assert sign_index > build_block.index("apply_macos_bundle_fixes(")
     assert sign_index < build_block.index("create_archive(")
     assert sign_index < build_block.index("make_macos_dmg(")
-
-
-def test_desktop_release_workflow_uses_official_macos_ollama_bundle() -> None:
-    workflow = (
-        Path(__file__).resolve().parent.parent / ".github" / "workflows" / "release-desktop.yml"
-    ).read_text(encoding="utf-8")
-
-    assert "Ollama-darwin.zip" in workflow
-    assert "OPENBILICLAW_OLLAMA_BIN" in workflow
-    assert "Contents/Resources/llama-server" in workflow
-    assert "Contents/Resources/libllama-server-impl.dylib" in workflow
-    assert "brew install ollama" not in workflow
 
 
 def test_desktop_release_workflow_mentions_macos_installer_and_first_launch_guide() -> None:
@@ -566,18 +458,6 @@ def test_packaging_workflows_prefetch_tailnet_modules_before_every_build(
         remaining.remove(earlier[-1])
 
 
-def test_manual_installer_workflow_uses_official_macos_ollama_bundle() -> None:
-    workflow = (
-        Path(__file__).resolve().parent.parent / ".github" / "workflows" / "build-installers.yml"
-    ).read_text(encoding="utf-8")
-
-    assert "Ollama-darwin.zip" in workflow
-    assert "OPENBILICLAW_OLLAMA_BIN" in workflow
-    assert "Contents/Resources/llama-server" in workflow
-    assert "Contents/Resources/libllama-server-impl.dylib" in workflow
-    assert "brew install ollama" not in workflow
-
-
 def test_developer_id_signing_covers_nested_code_but_not_symlinks_or_data(tmp_path, monkeypatch):
     app = tmp_path / "OpenBiliClaw.app"
     framework = app / "Contents/Frameworks/Python.framework"
@@ -586,7 +466,7 @@ def test_developer_id_signing_covers_nested_code_but_not_symlinks_or_data(tmp_pa
     binary.write_bytes(b"\xcf\xfa\xed\xfe" + b"fake binary")
     alias = framework / "Python"
     alias.symlink_to(binary)
-    helper = app / "Contents/Resources/ollama"
+    helper = app / "Contents/Resources/obc-helper"
     helper.parent.mkdir(parents=True)
     helper.write_bytes(b"\xca\xfe\xba\xbe" + b"fake universal")
     data = helper.with_name("model.bin")
@@ -718,7 +598,7 @@ def test_ci_signing_requires_credentials_even_if_old_toggle_disables_signing(
 
 
 @pytest.mark.parametrize(
-    "label", ["v0.3.226-arm64", "desktop-v0.3.226-with-embedding-x64", "v0.3.226.ab12345-x64"]
+    "label", ["v0.3.226-arm64", "desktop-v0.3.226-x64", "v0.3.226.ab12345-x64"]
 )
 def test_macos_bundle_versions_exclude_artifact_labels(label):
     assert build_module.make_macos_bundle_version(label) == "0.3.226"

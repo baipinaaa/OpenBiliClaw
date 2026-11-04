@@ -1589,7 +1589,7 @@ def test_degraded_flag_cannot_mask_configured_embedding_failure(
 ) -> None:
     config = SimpleNamespace(
         data_dir=str(tmp_path / "production"),
-        llm=SimpleNamespace(embedding=SimpleNamespace(provider="ollama", fallback_provider="")),
+        llm=SimpleNamespace(embedding=SimpleNamespace(provider="gemini", fallback_provider="")),
     )
     monkeypatch.setattr(
         "scripts.run_profile_diet_ab._build_embedding_service",

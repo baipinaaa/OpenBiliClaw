@@ -95,8 +95,8 @@ def saved_sync_client(
     monkeypatch.setenv("OPENBILICLAW_PROJECT_ROOT", str(project_root))
     config = Config()
     config.scheduler.enabled = False
-    config.llm.default_provider = "ollama"
-    config.llm.ollama.model = "llama3"
+    config.llm.default_provider = "deepseek"
+    config.llm.deepseek.api_key = "test-key"
     save_config(config, project_root / "config.toml")
 
     database = Database(tmp_path / "saved-sync.db")
@@ -1169,8 +1169,8 @@ def test_runtime_construction_failure_keeps_existing_saved_sync_and_bilibili_cli
 
     config = Config(data_dir=str(tmp_path / "runtime-atomic"))
     config.scheduler.enabled = False
-    config.llm.default_provider = "ollama"
-    config.llm.ollama.model = "llama3"
+    config.llm.default_provider = "deepseek"
+    config.llm.deepseek.api_key = "test-key"
     context = build_runtime_context(config)
     old_service = context.saved_sync_service
     old_client = context.bilibili_client
@@ -1199,8 +1199,8 @@ async def test_runtime_context_rebuilds_tracked_bilibili_saved_sync_service(
 
     config = Config(data_dir=str(tmp_path / "runtime-data"))
     config.scheduler.enabled = False
-    config.llm.default_provider = "ollama"
-    config.llm.ollama.model = "llama3"
+    config.llm.default_provider = "deepseek"
+    config.llm.deepseek.api_key = "test-key"
     context = build_runtime_context(config)
     first_service = context.saved_sync_service
     first_client = context.bilibili_client

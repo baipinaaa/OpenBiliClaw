@@ -22,7 +22,6 @@ def _invalid_config(tmp_path) -> Config:
         llm=LLMConfig(
             default_provider="openai",
             openai=LLMProviderConfig(api_key="", model="gpt-4o-mini"),
-            ollama=LLMProviderConfig(model="", base_url=""),
         ),
         data_dir=str(tmp_path / "data"),
     )
@@ -331,7 +330,7 @@ def test_degraded_mode_allows_llm_independent_repair_surfaces(
 
     Blocking them made the settings 平台源 tab and the embedding banner fail
     with misleading "backend unavailable" copy while degraded, even though
-    fixing platform logins / pulling bge-m3 is exactly what a user can
+    fixing platform logins / adding an embedding key is exactly what a user can
     usefully do while repairing the LLM config.
     """
     _clear_llm_env(monkeypatch)

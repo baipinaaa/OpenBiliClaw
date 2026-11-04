@@ -212,7 +212,7 @@ async def test_chat_ready_never_probes_non_chat_default() -> None:
     provider = _Provider(ok=True)
     registry = SimpleNamespace(
         get=lambda _name="": provider,
-        default_provider="ollama",
+        default_provider="deepseek",
         fallback_provider="",
         is_chat_capable=lambda _name: False,
     )

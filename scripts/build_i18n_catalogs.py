@@ -175,7 +175,7 @@ def _is_ui_string(value: str) -> bool:
         return False
     # Leftovers from JS expressions (``` : it.actionLabel)}``) contain an
     # unpaired backtick or a property chain. Paired backticks are legitimate:
-    # the copy quotes a CLI command (``run `ollama serve` first``).
+    # the copy quotes a CLI command (``run `openbiliclaw init` first``).
     if "`" in text and (text.count("`") % 2 or text.lstrip().startswith("`")):
         return False
     if re.search(r"\bit\.[A-Za-z_]", text):
@@ -269,9 +269,7 @@ _INTERPOLATION = re.compile(r"\$\{([^{}]*)\}")
 # Numeric/date suffixes need reformatting rather than literal substitution
 # (「3 万」 is not "3 ten-thousand" in English); leave those in the source
 # language until a locale-aware formatter exists.
-_PATTERN_SKIP = re.compile(
-    r"^\{\d+\}(?:万|亿|月|日|号|时|分|秒)$|^\{0\}月\{1\}日$|^\{0\}年\{1\}月"
-)
+_PATTERN_SKIP = re.compile(r"^\{\d+\}(?:万|亿|月|日|号|时|分|秒)$|^\{0\}月\{1\}日$|^\{0\}年\{1\}月")
 # Structural joiners with no literal Chinese (the captures carry the copy).
 # Only this narrow shape is allowlisted: other placeholder-only templates are
 # URLs, CSS, ids, or code.

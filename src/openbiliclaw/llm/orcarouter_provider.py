@@ -26,7 +26,7 @@ class OrcaRouterProvider(OpenAIProvider):
     """
 
     # OrcaRouter routes most chat models, but its embeddings coverage is
-    # spotty per-route — fall back to ollama / gemini by default, matching
+    # spotty per-route — fall back to gemini by default, matching
     # the OpenRouter adapter's behavior.
     supports_embedding = False
 

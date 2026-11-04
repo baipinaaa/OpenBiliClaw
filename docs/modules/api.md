@@ -89,7 +89,7 @@ TOML 持久化，POSIX 权限 0600，非加密密钥库。后台按既有 apply 
 
 | 接口 | 状态 | 契约 |
 |---|---|---|
-| `GET /api/health` | ✅ | 本地 Ollama 已因 runner 错误切到 CPU 时，probe 超时返回 `embedding_ready=false`；有效向量成功后恢复为 true。普通未回退冷加载仍沿用原兼容策略。 |
+| `GET /api/health` | ✅ | embedding provider 探测超时返回 `embedding_ready=false`；有效向量请求成功后恢复为 true。普通未回退冷加载仍沿用原兼容策略。 |
 | 初始化 / embedding 诊断 | ✅ | 正式请求与诊断共享 CPU 选择，CPU 也失败时保留具体故障；不把 `/api/version` 成功当作模型可用。 |
 
 ## 推荐通知测试生命周期

@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Success caches longer; a failure/timeout caches briefly so a service that
 # just came up (or finished a cold model load) greens within seconds rather
 # than staying red for the full success-TTL. Timeout is generous enough to
-# cover a cold Ollama load but still fails (not optimistically passes) if the
+# cover a cold model load but still fails (not optimistically passes) if the
 # service never answers.
 #
 # The chat probe is a real (billable) completion, so its success TTL is
@@ -31,9 +31,9 @@ logger = logging.getLogger(__name__)
 # DeepSeek bill.
 _CHAT_OK_TTL = 300.0
 _CHAT_FAIL_TTL = 8.0
-# A local 7B model can need more than 15s for its first response while Ollama
-# loads weights from disk.  Thirty seconds still bounds a broken endpoint, but
-# avoids a false red checklist immediately after selecting a real local model.
+# A local model can need more than 15s for its first response while the
+# backend loads weights from disk.  Thirty seconds still bounds a broken
+# endpoint, but avoids a false red checklist immediately after switching.
 _CHAT_PROBE_TIMEOUT = 30.0
 # Public so ``api.source_auth.verify`` can wrap its own B站 probe in the same
 # bound. The two entry points write one shared verdict store, so a divergent
@@ -177,8 +177,8 @@ class InitPrereqs:
     async def chat_ready(self) -> bool:
         """Whether chat completions can *currently* be served.
 
-        Registry-built is necessary-not-sufficient (a configured Ollama whose
-        model was never pulled 404s at call time), so this does a real
+        Registry-built is necessary-not-sufficient (a configured model that
+        does not exist 404s at call time), so this does a real
         ``health_check`` (tiny completion) — cached, single-flighted, and
         strict on timeout (matches embedding readiness).
 

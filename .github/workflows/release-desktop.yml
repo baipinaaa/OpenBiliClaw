@@ -22,13 +22,8 @@ permissions:
 
 jobs:
   macos:
-    name: macOS installer (.dmg, arm64, ${{ matrix.variant }})
+    name: macOS installer (.dmg, arm64)
     runs-on: macos-15 # Apple Silicon
-    strategy:
-      # fail-fast off so a failing variant doesn't cancel the other.
-      fail-fast: false
-      matrix:
-        variant: [lean, with-embedding]
     steps:
       - uses: actions/checkout@v6
 
@@ -62,20 +57,6 @@ jobs:
       - name: Prefetch embedded Tailnet modules for every target
         run: python scripts/generate_tailnet_notices.py --prefetch
 
-      - name: Download official Ollama.app runtime
-        run: |
-          # Pinned, same release as the Windows job (v0.32.13): a newer
-          # `latest` client pulls bge-m3 with a nested-manifest layer that
-          # drifts the make_model_seed digest allowlist (v0.3.228 desktop
-          # build failure, 2026-10-13). Keep both platforms on one version.
-          curl -L https://github.com/ollama/ollama/releases/download/v0.32.13/Ollama-darwin.zip -o Ollama-darwin.zip
-          unzip -q Ollama-darwin.zip -d ollama-app
-          test -x ollama-app/Ollama.app/Contents/Resources/ollama
-          test -x ollama-app/Ollama.app/Contents/Resources/llama-server
-          test -f ollama-app/Ollama.app/Contents/Resources/libllama-server-impl.dylib
-          test -f ollama-app/Ollama.app/Contents/Resources/libggml.dylib
-          echo "OPENBILICLAW_OLLAMA_BIN=$PWD/ollama-app/Ollama.app/Contents/Resources/ollama" >> "$GITHUB_ENV"
-
       - name: Resolve version
         id: ver
         run: |
@@ -83,23 +64,8 @@ jobs:
           v="${GITHUB_REF_NAME#desktop-}"
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
-      - name: Produce bge-m3 seed (with-embedding only)
-        if: matrix.variant == 'with-embedding'
-        run: |
-          export OLLAMA_HOST=127.0.0.1:11500
-          "$OPENBILICLAW_OLLAMA_BIN" serve &
-          for i in $(seq 1 60); do curl -sf http://127.0.0.1:11500/api/version >/dev/null && break; sleep 1; done
-          "$OPENBILICLAW_OLLAMA_BIN" pull bge-m3
-          python packaging/make_model_seed.py --model bge-m3 --out packaging/model-seed \
-            --expect-digest sha256:0c4c9c2a325fb1cdafec606e6809cb745f1cb26a6d919994400d27372303e276 \
-            --expect-digest sha256:daec91ffb5dd0c27411bd71f29932917c49cf529a641d0168496c3a501e3062c \
-            --expect-digest sha256:a406579cd136771c705c521db86ca7d60a6f3de7c9b5460e6193a2df27861bde
-
-      - name: Build .app + .dmg (auto-bundles ollama)
-        run: |
-          flags=""
-          [ "${{ matrix.variant }}" = "with-embedding" ] && flags="--bundle-embedding"
-          python packaging/build.py --clean $flags --archive-version "${{ steps.ver.outputs.version }}-arm64"
+      - name: Build .app + .dmg
+        run: python packaging/build.py --clean --archive-version "${{ steps.ver.outputs.version }}-arm64"
 
       - name: Verify frozen macOS startup after signing
         shell: python
@@ -130,7 +96,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: openbiliclaw-macos-installer-arm64-${{ matrix.variant }}
+          name: openbiliclaw-macos-installer-arm64
           path: |
             dist/release/*.dmg
             dist/release/*.zip
@@ -140,7 +106,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: macos-notary-logs-${{ matrix.variant }}
+          name: macos-notary-logs
           path: dist/notary-logs/
           if-no-files-found: ignore
 
@@ -153,12 +119,8 @@ jobs:
           fi
 
   windows:
-    name: Windows installer (.exe, ${{ matrix.variant }})
+    name: Windows installer (.exe)
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: [lean, with-embedding]
     steps:
       - uses: actions/checkout@v6
 
@@ -189,92 +151,18 @@ jobs:
           echo "bare=${v#v}" >> "$GITHUB_OUTPUT"
           numeric="$(python -c 'import re,sys; m=re.match(r"v?(\d+)\.(\d+)\.(\d+)", sys.argv[1]); print(f"{m.group(1)}.{m.group(2)}.{m.group(3)}.0" if m else "0.0.0.0")' "$v")"
           echo "version_info=$numeric" >> "$GITHUB_OUTPUT"
-          if [ "${{ matrix.variant }}" = "with-embedding" ]; then
-            echo "variant_suffix=-with-embedding" >> "$GITHUB_OUTPUT"
-          else
-            echo "variant_suffix=" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Download Ollama (staged now; also used to produce the seed)
-        id: ollama
-        shell: pwsh
-        run: |
-          $ver = "0.32.13"
-          Invoke-WebRequest "https://github.com/ollama/ollama/releases/download/v$ver/ollama-windows-amd64.zip" -OutFile ollama.zip
-          Expand-Archive ollama.zip -DestinationPath ollama_win -Force
-          $exe = Get-ChildItem ollama_win -Recurse -Filter ollama.exe | Select-Object -First 1
-          if (-not $exe) { throw "ollama.exe not found in ollama-windows-amd64.zip" }
-          "path=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-
-      - name: Produce bge-m3 seed (with-embedding only)
-        if: matrix.variant == 'with-embedding'
-        shell: pwsh
-        run: |
-          $env:OLLAMA_HOST = "127.0.0.1:11500"
-          Start-Process -FilePath "${{ steps.ollama.outputs.path }}" -ArgumentList "serve" -NoNewWindow
-          for ($i = 0; $i -lt 60; $i++) { try { Invoke-WebRequest "http://127.0.0.1:11500/api/version" -UseBasicParsing | Out-Null; break } catch { Start-Sleep 1 } }
-          & "${{ steps.ollama.outputs.path }}" pull bge-m3
-          python packaging\make_model_seed.py --model bge-m3 --out packaging\model-seed `
-            --expect-digest sha256:0c4c9c2a325fb1cdafec606e6809cb745f1cb26a6d919994400d27372303e276 `
-            --expect-digest sha256:daec91ffb5dd0c27411bd71f29932917c49cf529a641d0168496c3a501e3062c `
-            --expect-digest sha256:a406579cd136771c705c521db86ca7d60a6f3de7c9b5460e6193a2df27861bde
 
       - name: Prefetch embedded Tailnet modules for every target
         run: python scripts/generate_tailnet_notices.py --prefetch
 
-      - name: PyInstaller onedir build (ollama staged separately below)
-        shell: pwsh
-        run: |
-          # Build the arg list as an array so the lean variant never passes an
-          # empty-string argument (argparse rejects "" as an unrecognized arg).
-          $buildArgs = @("--clean", "--no-bundle-ollama", "--archive-version", "${{ steps.ver.outputs.version }}")
-          if ("${{ matrix.variant }}" -eq "with-embedding") { $buildArgs += "--bundle-embedding" }
-          python packaging/build.py @buildArgs
+      - name: PyInstaller onedir build
+        run: python packaging/build.py --clean --archive-version "${{ steps.ver.outputs.version }}"
 
       - name: Run real frozen-bundle autostart lifecycle E2E
-        if: matrix.variant == 'lean'
         shell: pwsh
         run: |
           $env:OPENBILICLAW_FROZEN_EXE = (Resolve-Path "dist\OpenBiliClaw\OpenBiliClaw.exe").Path
           python -m pytest -q tests/test_windows_autostart_e2e.py -k real_frozen_bundle
-
-      - name: Stage bundled Ollama (Vulkan acceleration with CPU fallback)
-        shell: pwsh
-        run: |
-          $exe = Get-Item "${{ steps.ollama.outputs.path }}"
-          Copy-Item $exe.FullName dist\OpenBiliClaw\ollama.exe -Force
-          $lib = Join-Path $exe.Directory.FullName "lib"
-          if (Test-Path $lib) {
-            Copy-Item $lib dist\OpenBiliClaw\lib -Recurse -Force
-            # Drop large CUDA/ROCm runners; retain Vulkan and CPU.
-            # Embedding requests retry native runner failures with num_gpu=0.
-            Get-ChildItem dist\OpenBiliClaw\lib\ollama -Directory -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -match 'cuda|rocm' } |
-              Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-          }
-
-      # Do NOT patch the PE subsystem of the staged ollama binaries: rewriting
-      # the Subsystem byte invalidates their Authenticode signatures, and AV
-      # (Kaspersky) flags/quarantines such signed-but-modified exes (#281).
-      # Windowless operation no longer needs the patch — ollama spawns its
-      # runner with CREATE_NO_WINDOW (upstream PR #8668) and our supervisor
-      # launches `ollama serve` with CREATE_NO_WINDOW too.
-
-      - name: Verify bundled ollama Authenticode signatures
-        shell: pwsh
-        run: |
-          # Guard for #281: every staged ollama exe must keep Ollama's original
-          # Authenticode signature. Any post-download mutation (like the removed
-          # PE-subsystem patch) breaks it and gets the installer flagged by AV.
-          $exes = @("dist\OpenBiliClaw\ollama.exe")
-          $exes += (Get-ChildItem dist\OpenBiliClaw\lib -Recurse -Filter *.exe -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
-          $bad = @()
-          foreach ($f in $exes) {
-            $status = (Get-AuthenticodeSignature $f).Status
-            Write-Host "$f => $status"
-            if ($status -ne 'Valid') { $bad += "$f ($status)" }
-          }
-          if ($bad.Count -gt 0) { throw "Broken Authenticode signatures (AV will flag these): $($bad -join '; ')" }
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
@@ -282,10 +170,9 @@ jobs:
       - name: Compile installer
         shell: pwsh
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.ver.outputs.bare }} /DMyAppVersionInfoVersion=${{ steps.ver.outputs.version_info }} /DMyAppVariantSuffix=${{ steps.ver.outputs.variant_suffix }} packaging\openbiliclaw.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion=${{ steps.ver.outputs.bare }} /DMyAppVersionInfoVersion=${{ steps.ver.outputs.version_info }} packaging\openbiliclaw.iss
 
       - name: Install and test the actual Windows installer
-        if: matrix.variant == 'lean'
         shell: pwsh
         run: |
           $setup = (Get-ChildItem "dist\release\*.exe" | Select-Object -First 1).FullName
@@ -324,7 +211,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: openbiliclaw-windows-installer-${{ matrix.variant }}
+          name: openbiliclaw-windows-installer
           path: dist/release/*.exe
           if-no-files-found: error
 
@@ -365,7 +252,7 @@ jobs:
           - **macOS**：退出旧版，打开 DMG，将 OpenBiliClaw 拖到 Applications 后启动。无需解除隔离；首次打开可能显示正常的互联网下载确认。
           - **Windows**：SmartScreen 弹窗点「更多信息 → 仍要运行」。
 
-          自带本地 Ollama + `bge-m3` embedding，开箱即用，常驻 macOS 菜单栏 / Windows 系统托盘。数据在 `~/OpenBiliClaw`（macOS / Linux）/ `%USERPROFILE%\OpenBiliClaw`（Windows），升级 / 卸载不动它。Intel mac（x64）.dmg 未自动构建，需要时用手动的 build-installers.yml 产出后补挂。
+          纯远程推理（聊天与 embedding 均走你配置的云端 API，无内置本地模型），常驻 macOS 菜单栏 / Windows 系统托盘。数据在 `~/OpenBiliClaw`（macOS / Linux）/ `%USERPROFILE%\OpenBiliClaw`（Windows），升级 / 卸载不动它。Intel mac（x64）.dmg 未自动构建，需要时用手动的 build-installers.yml 产出后补挂。
           EOF
 
           ensure_release() {

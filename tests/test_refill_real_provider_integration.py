@@ -64,9 +64,9 @@ def _load_live_config_and_registry(
     requested_provider = os.getenv(_LIVE_PROVIDER_ENV, "").strip().lower()
     if requested_provider:
         # A selected live provider must win over every LLMService routing
-        # bucket. Retaining an old module model (for example an Ollama model)
-        # would still route the selected provider to the wrong model, so each
-        # override deliberately falls back to the selected provider's model.
+        # bucket. Retaining an old module model would still route the selected
+        # provider to the wrong model, so each override deliberately falls back
+        # to the selected provider's model.
         config = replace(
             config,
             llm=replace(
@@ -85,14 +85,13 @@ def _load_live_config_and_registry(
     if disable_embedding:
         # The OpenClaw one-shot latency proof is intentionally chat-provider
         # only.  Do this before building the registry so a locally configured
-        # Ollama chat/embedding endpoint cannot even be registered or reached
-        # by this opt-in SenseTime test.
+        # embedding endpoint cannot even be registered or reached by this
+        # opt-in SenseTime test.
         config = replace(
             config,
             llm=replace(
                 config.llm,
                 fallback_provider="",
-                ollama=replace(config.llm.ollama, api_key="", base_url="", model=""),
                 embedding=replace(
                     config.llm.embedding,
                     provider="",
@@ -715,9 +714,6 @@ async def test_real_provider_openclaw_one_shot_refill_uses_single_copy_owner(
     assert config.llm.default_provider == "openai_compatible"
     assert config.llm.embedding.provider == ""
     assert config.llm.embedding.fallback_provider == ""
-    assert config.llm.ollama.model == ""
-    assert config.llm.ollama.base_url == ""
-    assert "ollama" not in registry.available_providers
     gate = LLMConcurrencyGate(total_concurrency=4)
     metrics = _LiveMetrics(gate)
     monitored_registry = _MonitoredRegistry(registry, metrics)
@@ -731,8 +727,6 @@ async def test_real_provider_openclaw_one_shot_refill_uses_single_copy_owner(
         embedding_builder_calls += 1
         assert callback_config.llm.embedding.provider == ""
         assert callback_config.llm.embedding.fallback_provider == ""
-        assert callback_config.llm.ollama.model == ""
-        assert callback_config.llm.ollama.base_url == ""
         return None
 
     monkeypatch.setattr(bootstrap_module, "load_config", lambda: config)

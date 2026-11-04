@@ -1075,8 +1075,6 @@ test("settings page placeholders match config example defaults", () => {
   const expectedDefaults = [
     ["cfgOpenaiModel", "gpt-5-nano"],
     ["cfgClaudeModel", "claude-sonnet-4-6"],
-    ["cfgOllamaModel", "qwen2.5:7b"],
-    ["cfgOllamaBaseUrl", "http://localhost:11434/v1"],
     ["cfgOpenrouterModel", "openai/gpt-5-nano"],
   ];
 

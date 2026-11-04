@@ -87,12 +87,12 @@ python3 scripts/agent_bootstrap.py \
 | `--project-dir` | 目标仓库目录。默认当前目录。 |
 | `--mode` | `auto`（默认，有 Docker 走 Docker，否则 local）、`docker`、`local`。 |
 | `--reuse-from PATH` | 从另一份 OpenBiliClaw 目录复用 API Key / Bilibili Cookie。 |
-| `--provider NAME` | 强制切换默认 LLM provider（openai/claude/gemini/deepseek/ollama/openrouter）。OpenAI 协议兼容自建网关也填 `openai`，配合 `--llm-base-url`。 |
+| `--provider NAME` | 强制切换默认 LLM provider（openai/claude/gemini/deepseek/openrouter）。OpenAI 协议兼容自建网关也填 `openai`，配合 `--llm-base-url`。 |
 | `--llm-api-key KEY` | 给当前（或 `--provider` 指定的）provider 写入 API Key。 |
 | `--llm-base-url URL` | （v0.3.5+）覆盖该 provider 的 `base_url`。**OpenAI 协议兼容服务必填**（Azure / vLLM / LMStudio / OneAPI / 自建网关）。 |
 | `--llm-model NAME` | （v0.3.5+）覆盖该 provider 的 chat 模型名。 |
-| `--embedding-provider NAME` | （v0.3.5+）embedding provider。空字符串 = 不启用 embedding；填 `ollama` 走本地 bge-m3；填其他 provider 则单独走该家。 |
-| `--embedding-model NAME` | （v0.3.5+）embedding 模型名（典型: `bge-m3`、`text-embedding-3-small`）。 |
+| `--embedding-provider NAME` | （v0.3.5+）embedding provider。空字符串 = 不启用 embedding；填其他 provider 则单独走该家。 |
+| `--embedding-model NAME` | （v0.3.5+）embedding 模型名（典型: `gemini-embedding-001`、`text-embedding-3-small`）。 |
 | `--embedding-base-url URL` | （v0.3.5+）自托管 embedding 网关的 base_url，会写到 `[llm.embedding].base_url`。 |
 | `--embedding-api-key KEY` | （v0.3.5+）自托管 embedding 网关的 API Key，会写到 `[llm.embedding].api_key`。 |
 | `--module-override MODULE=PROVIDER:MODEL` | （v0.3.5+，可重复）per-module LLM 覆盖。MODULE ∈ {soul, discovery, recommendation, evaluation}。例：`--module-override discovery=deepseek:deepseek-v4-flash`。 |
@@ -184,8 +184,8 @@ docker exec -it openbiliclaw-backend openbiliclaw config-show
 auto-init 会把 B 站初始化收藏 / 关注上限传给 `openbiliclaw init`；默认各 300，AI agent 可在用户明确要求时传 `--bilibili-favorite-limit N` / `--bilibili-follow-limit N` 调整。
 
 **v0.3.30+ 又加了一道隐私 / 质量决策门槛，v0.3.67+ 增加抖音同意项，当前也要求 YouTube 同意项**：auto-init 只会在
-embedding 选择已显式传入（例如 `--embedding-provider ollama
---embedding-model bge-m3`，或 `--embedding-provider ""` 表示用户选择暂不启用
+embedding 选择已显式传入（例如 `--embedding-provider gemini
+--embedding-model gemini-embedding-001`，或 `--embedding-provider ""` 表示用户选择暂不启用
 embedding）且小红书 / 抖音 / YouTube 决策都已显式传入（`--yes-xhs` / `--no-xhs`、`--yes-douyin` / `--no-douyin`、`--yes-youtube` / `--no-youtube`）时执行。如果缺少其中任一项，最后一条事件会是：
 
 ```json

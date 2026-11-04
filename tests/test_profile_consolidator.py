@@ -2024,7 +2024,7 @@ def test_scheduler_config_consolidation_fields(tmp_path: Path) -> None:
     cfg_path.write_text(
         """
 [llm]
-default_provider = "ollama"
+default_provider = "deepseek"
 
 [scheduler]
 profile_consolidation_enabled = false

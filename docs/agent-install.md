@@ -1,6 +1,6 @@
 # OpenBiliClaw install instructions (for AI agents)
 
-> 本机 Ollama 向量请求自动选择加速设备，原生 runner 崩溃时以 CPU 重试；仅有效向量确认恢复。完整重启后重新尝试自动加速，无需新增配置。Windows 包保留 Vulkan 与 CPU，CUDA/ROCm 仍不随包分发。
+> 向量请求是普通的远程 HTTP 调用；provider 未配置或探测失败时语义去重 / 多样性自动降级，不阻塞主流程。Windows 包保留 Vulkan 与 CPU，CUDA/ROCm 仍不随包分发。
 
 > **Important:** If you're an AI coding agent reading this file, use
 > `curl -fsSL <url> -o /tmp/agent-install.md` via Bash to fetch it —
@@ -70,7 +70,7 @@ Either command:
    - **Optional public-domain HTTPS**: the installer intentionally keeps the default HTTP deployment. If the user explicitly asks for public HTTPS and already controls a DNS name pointing to the Docker host, use Compose `2.24.4+`, download / use `docker-compose.https.yml`, set `OPENBILICLAW_DOMAIN=<dns-name>`, and layer it over the selected source or prebuilt compose. Confirm TCP 80/443 reachability, then enable `set-password` and the remote extension `ext-key` flow and restart backend + Caddy; never expose bare `8420` publicly. The overlay pins Caddy, persists certificates, restricts `8420` to host loopback, and waits without binding public ports until `/api/auth/status` reports the password gate enabled. Follow [`docs/https-deployment.md`](https-deployment.md) exactly.
    - **Optional LAN/self-managed HTTPS**: the installer intentionally leaves the TLS proxy disabled and does not add the local-mode `[tls]` extra. Only enable it after asking which exact IP/hostname clients will use. Local source installs run `uv sync --extra tls`, then `uv run openbiliclaw tls-proxy enable --san <IP_OR_HOST>` and start with `uv run openbiliclaw serve-api`. Source Docker installs set comma-separated `OPENBILICLAW_TLS_SAN_NAMES` before `docker compose --profile tls up -d --build`. No remote SAN means localhost-only; this is not a public-Internet production proxy. Do not combine it with the public Caddy overlay. Follow [`docs/https-deployment.md`](https-deployment.md).
 6. Verifies the configured global LLM instance chain and embedding service with real lightweight calls before init; any healthy chat instance satisfies the chain check, while embedding remains an independent check. If either service is unavailable, bootstrap blocks init with `status=service_check_failed`.
-   - The chat probe explicitly disables DeepSeek thinking. Every Ollama chat instance requires an explicit `model`; a Base URL or embedding-only `bge-m3` config never implies `llama3`.
+   - The chat probe explicitly disables DeepSeek thinking. Every chat instance requires an explicit `model`; a Base URL alone never implies a model name.
    - When a non-DeepSeek provider is selected, bootstrap automatically disables the shipped empty-key DeepSeek template instance and removes it from `default_chain`; a DeepSeek instance with a configured key remains available as a fallback.
 7. Automatically runs init after credentials, confirmations, and AI service checks are complete, then prints a self-contained **status block** at the very end of stdout:
 
@@ -120,7 +120,7 @@ bootstrap emits `init_complete` or a concrete blocker.
 `service_check_failed` means credentials and init choices were present,
 but the global LLM instance chain or embedding service failed its pre-init
 probe. Do not run `openbiliclaw init` manually around this; fix the
-instance/API key/base_url/model/Ollama issue and re-run bootstrap so the
+instance/API key/base_url/model issue and re-run bootstrap so the
 same gate can pass.
 
 If the block says `Status: needs_decisions`, credentials are present
@@ -286,19 +286,12 @@ and explicit source choices (`--yes-xhs` / `--no-xhs` plus
 `status=needs_decisions` and **does not run init**. Ask the missing
 questions, then re-run bootstrap with those flags.
 
-v0.3.95+ embedding safety net (`should_auto_wire_embedding`): when
-`[llm.embedding].provider` would otherwise stay empty — e.g. the chat
-provider is Claude / DeepSeek / OpenRouter / OrcaRouter / Requesty / API Route / Cheaper Inference (which can't embed) and you
-never passed `--embedding-provider` — bootstrap auto-writes
-`provider=ollama, model=bge-m3` and pulls the model, so semantic dedup
-isn't silently disabled (the symptom is recommendations repeating
-near-identical content under different ids). This is skipped under
-Docker (the container can't reach the host's Ollama at `localhost`) and
-when you explicitly disable embedding via `--embedding-provider ""`.
-Emits `embedding_auto_ollama` in the progress stream when it fires.
-In Docker human one-line installs, the default `ollama` + `bge-m3`
-embedding choice is instead pointed at the compose sidecar
-`http://ollama:11434/v1` before config is copied into `/app/runtime`.
+There is **no embedding auto-wiring** any more. If `[llm.embedding].provider`
+stays empty, embedding is simply disabled: semantic dedup / diversity degrade
+and recommendations may repeat near-identical content under different ids.
+Ask Step 3 explicitly and pass the `--embedding-*` flags that match the user's
+answer. Embedding is always a remote HTTP call (cloud API or a self-hosted
+OpenAI-compatible gateway) — this version bundles no local model runtime.
 
 ### Step 1 — Pick an LLM service
 
@@ -325,14 +318,7 @@ user chooses an OpenAI-compatible gateway / preset path.
 | 9. **API Route** | `gpt-5.5` | 一个 Key 跑多家模型 | ✅ 需要 | 按调用计费 |
 | 10. **Cheaper Inference** | `gpt-5.4-mini` | 一个 Key 跑多家模型 | ✅ 需要 | 按调用计费 |
 
-> **本地 Ollama 不在聊天 provider 菜单里**（v0.3.176+）：随装的 Ollama 只带
-> embedding 模型 `bge-m3`，小体积本地聊天模型达不到内容管线质量线。需要本地
-> 聊天模型时到桌面设置页手动配置，或显式 `--provider ollama --llm-model qwen2.5:7b`
-> 走完全离线路径（见下方「Hardware caveat for local Ollama」）。
-
-> ⚠️ **不要把选项 3 (OpenAI 官方) 和选项 2 (协议兼容) 混淆**:走 OpenAI API 官方端点选 3;走任何"OpenAI 协议兼容"的第三方 / 自建服务选 2。
-
-**AI agent 决策建议**: **默认引导 #1 DeepSeek**(几毛钱搞定);用户明确说"我有中转站 Key / OneAPI / 通义 / 智谱 / Kimi / MiniMax / Yi / Azure / vLLM 等任何 OpenAI 兼容服务"→ 引导 #2(进子菜单后再细分);用户明确说"用 OpenAI / Gemini / Claude 官方"才走 #3-5;用户提到"OrcaRouter / 一个 Key 跑多家模型 + 安全网关"→ 引导 #7;用户提到"Requesty"→ 引导 #8；用户提到"API Route"→ 引导 #9；用户提到"Cheaper Inference"→ 引导 #10；Ollama 仅在用户明确要求"本地 / 离线"时用显式 `--provider ollama` 走离线路径。
+**AI agent 决策建议**: **默认引导 #1 DeepSeek**(几毛钱搞定);用户明确说"我有中转站 Key / OneAPI / 通义 / 智谱 / Kimi / MiniMax / Yi / Azure / vLLM 等任何 OpenAI 兼容服务"→ 引导 #2(进子菜单后再细分);用户明确说"用 OpenAI / Gemini / Claude 官方"才走 #3-5;用户提到"OrcaRouter / 一个 Key 跑多家模型 + 安全网关"→ 引导 #7;用户提到"Requesty"→ 引导 #8；用户提到"API Route"→ 引导 #9；用户提到"Cheaper Inference"→ 引导 #10；用户明确要求"本地 / 离线"时应改为自建 OpenAI 兼容网关离线路径。
 
 **选项 2 的核心场景:你买了第三方中转站 / OneAPI 的 Key**,想用人民币付钱跑 OpenAI / Claude / 国产模型 —— 这是国内绝大多数用户用这个选项的真正原因。子菜单 10 个 preset 中,**第 1 个就是中转站(默认)**:
 
@@ -343,19 +329,19 @@ user chooses an OpenAI-compatible gateway / preset path.
 | 3 | **MiniMax 官方** | `https://api.minimax.io/v1` | `MiniMax-M3.1-Flash`(默认 / 1M ctx / 自适应推理 / $0.15 ~ $0.60 per M) / `MiniMax-M3`。旧模型与自定义 ID 仍可用 |
 | 4 | **通义千问 (阿里 DashScope) 官方** | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-plus`(自动跟最新快照,当前 → qwen3.6-plus) / `qwen-flash`(便宜) / `qwen-max`(旗舰) |
 | 5 | **智谱 ChatGLM 官方** | `https://open.bigmodel.cn/api/paas/v4` | `glm-4.7-flash`(1/2026 免费 / 200K ctx) / `glm-5`(2/2026 付费旗舰 / 745B MoE)。注意 base_url 用 `/api/paas/v4` 不是 `/v1` |
-| 6 | **商汤日日新 (SenseNova) 官方** | `https://token.sensenova.cn/v1` | `deepseek-v4-flash`(已实测连通)。新用户免费额度，可零成本体验本项目(issue #193)；其它可用模型以控制台清单为准。token 端点未验证 embedding，Phase 3 默认推荐独立 Ollama bge-m3 |
+| 6 | **商汤日日新 (SenseNova) 官方** | `https://token.sensenova.cn/v1` | `deepseek-v4-flash`(已实测连通)。新用户免费额度，可零成本体验本项目(issue #193)；其它可用模型以控制台清单为准。token 端点未验证 embedding，Phase 3 默认推荐独立 Gemini embedding |
 | 7 | **零一万物 (Yi) 官方** | `https://api.lingyiwanwu.com/v1` | `yi-medium` / `yi-spark`(便宜) / `yi-lightning`(快) / `yi-large`(旗舰) |
 | 8 | **Azure OpenAI** | `https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT` | 用户自填 deployment name(不是底层 gpt-5) |
-| 9 | **自建 vLLM / LMStudio / Ollama 网关** | `http://localhost:8000/v1` | 用户自填 HuggingFace 路径(如 `meta-llama/Llama-3.3-70B-Instruct`) |
+| 9 | **自建 vLLM / LMStudio / 自建网关** | `http://localhost:8000/v1` | 用户自填 HuggingFace 路径(如 `meta-llama/Llama-3.3-70B-Instruct`) |
 | 10 | **其它(完全手填)** | 用户自填 | 用户自填 |
 
 > 💡 **AI agent 注意**:
 > - 用户说"我有中转站 / OneAPI / 团队网关 / 公司给的 Key"等(国内最常见)→ 选项 2 子菜单 #1 (relay)
 > - 用户说"我有 Kimi / 通义 / 智谱 / 商汤日日新 / Yi / Moonshot / MiniMax / Qwen / GLM / SenseNova 官方 Key" → 选项 2 子菜单 #2-7 对应 preset
 > - 用户说"Azure OpenAI / 公司 Azure 部署" → 子菜单 #7 (azure)
-> - 用户说"自己跑的 vLLM / LMStudio / Ollama OpenAI 兼容 shim" → 子菜单 #8 (self-hosted)
+> - 用户说"自己跑的 vLLM / LMStudio / 其它 OpenAI 兼容 shim" → 子菜单 #8 (self-hosted)
 >
-> 子菜单选完后，fresh install 会创建或复用一个 `provider_type="openai_compatible"` 的 `[llm.instances.<id>]`（`base_url` 必填），并把它提升到 `default_chain` 首位；已有其他官方或中转实例与后续 fallback 顺序都会保留。AI-agent 非交互 `--llm-preset` 走同一实例写入逻辑；已有 legacy config 仍原格式就地更新，直到新版设置页保存时再迁移。子菜单还会**显示服务介绍 + Key 申请链接**，并**预提醒 embedding 怎么办**（Kimi / MiniMax / Yi / 自建通常没有 embedding endpoint，Phase 3 默认推荐独立 Ollama bge-m3；Qwen / GLM / Azure / 中转站可在 Phase 3 高级选项里显式复用同一地址）。
+> 子菜单选完后，fresh install 会创建或复用一个 `provider_type="openai_compatible"` 的 `[llm.instances.<id>]`（`base_url` 必填），并把它提升到 `default_chain` 首位；已有其他官方或中转实例与后续 fallback 顺序都会保留。AI-agent 非交互 `--llm-preset` 走同一实例写入逻辑；已有 legacy config 仍原格式就地更新，直到新版设置页保存时再迁移。子菜单还会**显示服务介绍 + Key 申请链接**，并**预提醒 embedding 怎么办**（Kimi / MiniMax / Yi / 自建通常没有 embedding endpoint，Phase 3 默认推荐独立 Gemini embedding；Qwen / GLM / Azure / 中转站可在 Phase 3 高级选项里显式复用同一地址）。
 
 **AI agent 一键非交互式安装(`--llm-preset`)** —— 不走交互菜单,直接传 preset 名给 `agent_bootstrap.py`,Base URL + 默认模型自动从 preset 表里拿。**最常见的中转站场景排第一**:
 
@@ -393,18 +379,16 @@ python3 scripts/agent_bootstrap.py --llm-preset self-hosted \
 
 `--llm-base-url` / `--llm-model` 单独传时会**覆盖**对应 preset 字段(per-field override),给你 escape hatch 而不强制走 preset 默认。`--llm-preset` 隐式锁 `--provider=openai_compatible`（这样中转站 DeepSeek 等模型会走“可关闭 thinking”的通用 OpenAI 兼容适配器，避免 `max_tokens` 被隐藏推理耗尽）；显式传不同 provider 会冲突报错，历史遗留的 `--provider openai` 会被自动 remap 为 `openai_compatible`。
 
-**Why DeepSeek default, not Ollama**: previous versions called Ollama
-"推荐新手 / 白嫖" but in practice CPU inference on a 16 GB Mac is slow
-enough that users think the install is broken. DeepSeek charges roughly
-¥0.001 per thousand tokens — running OpenBiliClaw for a month costs
-under ¥1 for most users. That's the actual zero-friction path. Ollama
-remains a first-class option for people who genuinely want offline /
-no-key setups, but should not be sold as "新手友好".
+**Why DeepSeek is the default**: it charges roughly ¥0.001 per thousand
+tokens — running OpenBiliClaw for a month costs under ¥1 for most users, and
+responses are fast enough that the install never feels broken. That is the
+actual zero-friction path.
 
-**Hardware caveat for local Ollama**: tell the user upfront —
-"本地模型的首次响应会比较慢（CPU 推理），内存建议 16GB 以上。如果你介意等待，
-选 1 或 2 更顺。" Don't wave them into Ollama if they have a 4-core
-Windows laptop with 8 GB.
+**No local model runtime**: this version bundles no local inference engine.
+Chat and embedding are both remote HTTP APIs. If the user genuinely needs
+self-hosted inference, point them at **option 10 (OpenAI-compatible
+self-hosted gateway)** — vLLM / LM Studio / OneAPI / their own endpoint — and
+make clear they run and pay for that service themselves.
 
 ### Advanced — OpenAI-compatible self-hosted gateway
 
@@ -444,8 +428,8 @@ Once they've picked, only ask the **fields that option actually needs**.
 
 Run with `--provider deepseek --llm-api-key <KEY>` plus the embedding
 flags from Step 3. DeepSeek has no embeddings endpoint, so recommend
-local Ollama bge-m3 unless the user explicitly wants Gemini / OpenAI
-embedding. `--embedding-provider ""` now means "do not enable embedding".
+Gemini embedding unless the user explicitly wants OpenAI or a self-hosted
+gateway. `--embedding-provider ""` means "do not enable embedding".
 
 #### Options 3-10 (OpenAI 官方 / Gemini / Claude / OpenRouter / OrcaRouter / Requesty / API Route / Cheaper Inference):
 
@@ -465,40 +449,6 @@ embedding flags. Don't ask for Base URL. Embedding is independent from
 the primary LLM; if the user wants embedding, pass an explicit
 `--embedding-provider` and its model/key fields.
 
-#### Ollama (fully offline / no key, via `--provider ollama`):
-
-**You don't need to ask the user to install Ollama themselves.** Since
-v0.3.10, `agent_bootstrap.py` auto-installs Ollama (macOS via `brew`,
-Windows via `winget`, Linux via the official `install.sh`), starts the
-daemon in the background, and pulls the chat model. All you tell the
-user is:
-
-> 「我会帮你装 Ollama 和拉模型，需要 1–3 分钟（取决于你的网速）。
->   不需要你做任何事，全程会打印进度。
->   首次推理会比较慢（CPU 跑模型），不是装坏了。」
-
-Then run with `--provider ollama --llm-model qwen2.5:7b` (or
-`qwen2.5:3b` for a smaller model on weaker hardware), plus the Step 3
-embedding flags. No `--llm-api-key` or `--llm-base-url` needed.
-`--llm-model` is mandatory for Ollama chat: the bootstrap reports
-`llm.instances.<instance-id>.model` as missing instead of guessing or pulling `llama3`
-(legacy files still report `llm.ollama.model`).
-
-If the auto-install fails (no `brew` on Mac, no `winget` on Windows,
-no `sudo` on Linux), the bootstrap emits an `ollama_install_failed`
-event with a manual-install URL. Tell the user that exact URL and ask
-them to install Ollama from there, then re-run the same bootstrap
-command — config already on disk, only the Ollama phase will rerun.
-
-Inside Docker mode the bootstrap **does not** auto-install Ollama for
-the chat LLM. If the user chooses chat provider `ollama`, tell them to
-run host-side Ollama and set that Ollama instance's `base_url` to
-`http://host.docker.internal:11434/v1` so the container can reach it.
-Set the same instance's `model` to the exact host-side chat model as well.
-This is separate from embedding: the default Docker embedding path uses
-the compose sidecar at `http://ollama:11434/v1` and does not require a
-host Ollama install.
-
 ### Step 3 — Embedding (向量化)
 
 Embedding is the service that turns video titles / descriptions into
@@ -514,43 +464,37 @@ Tell the user:
 >
 >   三选一,**不确定就回 1**:
 >
->   1. **本地 Ollama bge-m3**(默认推荐 / 免费 / 离线 / 不消耗主 LLM 配额)
->      —— 我会自动装 Ollama 并拉 568MB 的 bge-m3 模型
->      —— 多语言效果在开源模型里属于第一档,日常推荐够用
->
->   2. **云端 Gemini embedding**(质量更高 / 跨语言更稳)
->      —— 用 Google 的 `gemini-embedding-001`,在中英混合、长文本、
->         小众词上比本地 bge-m3 略好,推荐能更准一些
+>   1. **云端 Gemini embedding**(默认推荐)
+>      —— 用 Google 的 `gemini-embedding-001`,中英混合 / 长文本 / 小众词都稳
 >      —— 需要一个 Gemini API Key(免费档每天 1500 次,日常用足够)
->      —— 适合追求推荐质量、能去 Google AI Studio 拿 Key 的人
+>      —— 如果你已经用 Gemini 当主 LLM,可以直接复用同一个 Key
 >
->   3. **暂不启用 embedding**
->      —— 可以先跳过，推荐仍能跑；语义去重 / 相似度能力会降级
+>   2. **暂不启用 embedding**
+>      —— 可以先跳过,推荐仍能跑;语义去重 / 相似度能力会降级
 >      —— 之后可在设置页或 `openbiliclaw setup-embedding` 单独开启
 >
->   日常使用选项 1 完全够用;如果你已经选了 Gemini 当主 LLM,选项 3 等同于
->   选项 2,免费额度通常一天用不完。」
+>   3. **(高级)自建 OpenAI 兼容 embedding 服务**
+>      —— vLLM / LMStudio / OneAPI / 你自己的网关,需要你提供 base_url 和模型名
+>
+>   本版本不内置任何本地模型运行时,embedding 一定是一次 HTTP 调用。」
 
 **Mapping the user's answer to bootstrap flags**:
 
 | 用户选 | 命令行参数 | 备注 |
 |---|---|---|
-| 1 (本地 Ollama, 默认) | `--embedding-provider ollama --embedding-model bge-m3` | bootstrap 会自动装 Ollama + 拉 bge-m3 |
-| 2 (Gemini) | `--embedding-provider gemini --embedding-model gemini-embedding-001 --embedding-api-key <KEY>` | 用户已有 Gemini Key 就用现有的;没有就引导去 https://aistudio.google.com/apikey 拿 |
-| 3 (暂不启用 embedding) | `--embedding-provider ""` | 这是“我问过用户,用户选择不启用 embedding”的显式记录；bootstrap 不会自动改写为其它 provider |
+| 1 (Gemini, 默认) | `--embedding-provider gemini --embedding-model gemini-embedding-001 --embedding-api-key <KEY>` | 用户已有 Gemini Key 就用现有的;没有就引导去 Google AI Studio 拿 |
+| 2 (暂不启用) | `--embedding-provider ""` | 这是“我问过用户,用户选择不启用 embedding”的显式记录 |
+| 3 (自建网关) | `--embedding-provider openai_compatible --embedding-model <MODEL> --embedding-base-url <URL> --embedding-api-key <KEY>` | 自建服务必须显式给模型名与 base_url |
 
-**Special case — Gemini Key reuse**: if the user picks option 2 *and*
+**Special case — Gemini Key reuse**: if the user picks option 1 *and*
 already configured Gemini as their primary LLM, you may reuse the same
 key value, but still pass it as `--embedding-api-key <KEY>`. Embedding
-credentials are stored in `[llm.embedding]`. When embedding fallback is
-explicitly enabled, runtime retains a compatibility path that can borrow the
-first enabled Gemini chat instance if this field is empty, but installer
-output should remain explicit and reproducible.
+credentials are stored in `[llm.embedding]`.
 
-**No implicit embedding walk**: option 3 really disables embedding. Runtime
+**No implicit embedding walk**: option 2 really disables embedding. Runtime
 only tries `[llm.embedding].fallback_provider` when that field is explicitly
-configured; it never walks Ollama → Gemini → OpenAI or follows the chat
-`default_chain`. This keeps vector model / dimension changes deliberate.
+configured; it never follows the chat `default_chain`. This keeps vector
+model / dimension changes deliberate.
 
 ### Step 4 — B 站 Cookie
 
@@ -676,22 +620,22 @@ will pause with `status=needs_decisions` instead of running init.
 The shape of the command depends on what the user picked at each step.
 Match each example to the user's actual answers — don't copy-paste blindly.
 
-**默认推荐路径** (DeepSeek + 选项 1 本地 Ollama embedding + 扩展 Cookie)：
+**默认推荐路径** (DeepSeek + 选项 1 Gemini embedding + 扩展 Cookie)：
 
 ```bash
 python3 scripts/agent_bootstrap.py \
   --provider deepseek \
   --llm-api-key sk-... \
-  --embedding-provider ollama \
-  --embedding-model bge-m3 \
+  --embedding-provider gemini \
+  --embedding-model gemini-embedding-001 \
+  --embedding-api-key <GEMINI_KEY> \
   --no-xhs \
   --no-douyin \
   --no-youtube
 ```
 
 Pass embedding flags explicitly because the user actively picked option 1 —
-this records their choice and survives a future primary-LLM swap. The
-bootstrap auto-installs Ollama and pulls `bge-m3` in the same run.
+this records their choice and survives a future primary-LLM swap.
 Cookie comes via the extension after the backend is up; don't ask the
 user to F12 if you can lead them to the extension first.
 
@@ -712,20 +656,7 @@ Note: no `--embedding-api-key` because the same Gemini API key the
 user already gave for the primary LLM is reused. The free tier
 (1500 req/day) covers daily personal use comfortably.
 
-**完全离线路径** (Ollama 主 + 选项 1 Ollama embedding + 扩展 Cookie)：
-
-```bash
-python3 scripts/agent_bootstrap.py \
-  --provider ollama \
-  --llm-model qwen2.5:7b \
-  --embedding-provider ollama \
-  --embedding-model bge-m3 \
-  --no-xhs \
-  --no-douyin \
-  --no-youtube
-```
-
-**"暂不启用 embedding" 路径** (选项 3)：
+**"暂不启用 embedding" 路径** (选项 2)：
 
 ```bash
 python3 scripts/agent_bootstrap.py \
@@ -750,16 +681,18 @@ python3 scripts/agent_bootstrap.py \
   --llm-base-url http://localhost:8000/v1 \
   --llm-api-key sk-or-none \
   --llm-model meta-llama/Llama-3.1-70B-Instruct \
-  --embedding-provider ollama \
-  --embedding-model bge-m3 \
+  --embedding-provider gemini \
+  --embedding-model gemini-embedding-001 \
+  --embedding-api-key <GEMINI_KEY> \
   --no-xhs \
   --no-douyin \
   --no-youtube
 ```
 
-Embedding explicitly pinned to local Ollama because most self-hosted
-gateways (vLLM, LMStudio) don't expose `/v1/embeddings`; relying on
-the runtime fallback would still work but adds a startup warning.
+Most self-hosted chat gateways (vLLM, LMStudio) don't expose
+`/v1/embeddings`, so pair them with a cloud embedding provider — or pass
+`--embedding-provider openai_compatible` with that gateway's embedding
+endpoint if it really has one.
 
 > ⚠️ **Do NOT pass `--skip-init`** here. The point of running the
 > bootstrap with credentials is to reach a usable state. When all
@@ -776,7 +709,7 @@ the runtime fallback would still work but adds a startup warning.
 >
 > If bootstrap emits `status=service_check_failed`, init has deliberately
 > **not** run. Surface the failing service and error to the user, help
-> them fix the instance/API key/base_url/model/Ollama issue, then re-run
+> them fix the instance/API key/base_url/model issue, then re-run
 > the same bootstrap command without `--skip-init`.
 
 After running, **always**:
@@ -886,28 +819,21 @@ AI agent 视角:**不要省略这些问题**。一句话安装走的是
 
 The extension declares TikTok and Instagram site access by default in its Chrome, Firefox, and Safari manifests. Install/update permission handling belongs to the browser; saving Instagram source settings no longer opens a separate grant prompt or revokes access when the source is disabled. Both experimental sources remain opt-in in Settings, and personal imports require login in the same browser. If site access was restricted manually or by policy, restore it in the browser’s extension settings. This permission declaration does not certify source support on every browser.
 
-## Optional: local Ollama as the embedding fallback
+## Optional: switch or disable the embedding provider
 
 This is a **post-install opt-in**, not part of the install contract. Mention
-it to the user only if they ask about offline operation, embedding-quota
-errors, or a no-API-key setup. Steps:
+it to the user only if they ask about embedding cost / quota, or want a
+different embedding backend. Steps:
 
-1. User installs the official Ollama app: macOS / Windows from
-   `https://ollama.com/download` (start the app so `localhost:11434` is live), Linux
-   `curl -fsSL https://ollama.com/install.sh | sh && ollama serve &`.
-2. User runs `cd <INSTALL_DIR> && uv run openbiliclaw setup-embedding`.
-3. The wizard probes `localhost:11434`, pulls `bge-m3` if missing, and
-   writes `[llm.embedding] provider/model/base_url` to `config.toml`.
-   Restart the backend after this.
-
-Do NOT run these steps for the user automatically — Ollama install is a
-system-level package the user must consent to.
+1. User runs `cd <INSTALL_DIR> && uv run openbiliclaw setup-embedding`.
+2. The wizard asks for a provider (Gemini / custom OpenAI-compatible /
+   explicitly disabled) and writes `[llm.embedding] provider/model/base_url/
+   api_key` to `config.toml`. Restart the backend after this.
 
 > **Backend version note**: v0.3.32+ builds embedding from its own
 > `[llm.embedding]` provider and does not route it through the chat
-> registry. This separation is intentional: local `bge-m3` can serve
-> embeddings without registering Ollama for chat or causing any
-> `llama3` probe. Older v0.3.0–v0.3.2 installs should be upgraded.
+> registry, so switching the chat model never changes the embedding
+> provider, model or dimension.
 
 ## Optional: Jev decision provider and recommendation director
 

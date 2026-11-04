@@ -133,8 +133,7 @@ class HealthResponse(BaseModel):
     lan_ip: str | None = None
     # v0.3.95+: surfaces whether the embedding service built successfully.
     # ``False`` means semantic dedup / diversity is degraded (recommendations
-    # may repeat near-identical content under different ids) — the popup
-    # turns this into a one-click "enable local Ollama" banner.
+    # may repeat near-identical content under different ids).
     embedding_ready: bool | None = None
     # issue #170: distinguish "provider registered" from "default model chain
     # actually callable". ``llm_registered`` mirrors the startup registry
@@ -195,19 +194,9 @@ class InitPrerequisitesOut(BaseModel):
     embedding_ready: bool = False
     # Classified cause when embedding_ready is False, so the UI can say
     # WHY instead of a dead retry (v0.3.155+): ok | disabled | misconfigured |
-    # not_running | model_missing | model_broken | model_path_encoding |
-    # disk_full | network | model_oom | provider_error | checking | error.
+    # provider_error | checking | error.
     embedding_check: str = "ok"
     embedding_detail: str = ""  # human-readable hint ("" when ok/disabled)
-    # Live pull progress while a one-click repair is downloading the model
-    # (embedding_check == "repairing"), so init pages can render a real
-    # progress indicator instead of an opaque wait. total may be 0 while
-    # Ollama resolves the manifest.
-    embedding_repair_running: bool = False
-    embedding_repair_completed: int = 0
-    embedding_repair_total: int = 0
-    ollama_phase: str = "ready"
-    embedding_pull_status: str = ""
     embedding_required: bool = False
     enabled_platforms: list[str] = Field(default_factory=list)
     # Per-source, per-capability readiness projected from the same backend
@@ -2324,7 +2313,6 @@ class LLMProviderConfigOut(BaseModel):
     http_referer: str = ""
     x_title: str = ""
     reasoning_effort: str = "medium"
-    num_ctx: int = 0
 
 
 class LLMInstanceConfigOut(LLMProviderConfigOut):
@@ -2373,7 +2361,6 @@ class LLMConfigOut(BaseModel):
     claude: LLMProviderConfigOut = Field(default_factory=LLMProviderConfigOut)
     gemini: LLMProviderConfigOut = Field(default_factory=LLMProviderConfigOut)
     deepseek: LLMProviderConfigOut = Field(default_factory=LLMProviderConfigOut)
-    ollama: LLMProviderConfigOut = Field(default_factory=LLMProviderConfigOut)
     openrouter: LLMProviderConfigOut = Field(default_factory=LLMProviderConfigOut)
     # v0.3.32+ — generic OpenAI-protocol-compatible provider.
     openai_compatible: LLMProviderConfigOut = Field(default_factory=LLMProviderConfigOut)
@@ -2848,7 +2835,6 @@ class LoggingConfigOut(BaseModel):
 
 class AutostartConfigOut(BaseModel):
     enabled: bool = False
-    manage_ollama: bool = True
 
 
 class SavedSyncConfigOut(BaseModel):
@@ -2873,8 +2859,6 @@ class AutostartStatusOut(BaseModel):
     can_manage: bool
     platform: str
     mechanism: str
-    manage_ollama: bool
-    ollama_required: bool
     reason: str = "none"
     detail: str = ""
 

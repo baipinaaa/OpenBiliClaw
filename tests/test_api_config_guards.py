@@ -440,14 +440,14 @@ def test_put_config_round_trips_explicit_fallback_providers(monkeypatch, tmp_pat
 
     # Chat fallback must be a provider that would actually register — v0.3.156+
     # rejects a dead fallback (claude has a real key in _base_config; a keyless
-    # gemini fallback is now a blocking 400 by design). Embedding fallback keeps
-    # ollama (embedding side has no api_key requirement).
+    # gemini fallback is now a blocking 400 by design). Embedding fallback only
+    # needs a supported provider name.
     response = client.put(
         "/api/config",
         json={
             "llm": {
                 "fallback_provider": "claude",
-                "embedding": {"fallback_provider": "ollama"},
+                "embedding": {"fallback_provider": "gemini"},
             }
         },
     )
@@ -455,13 +455,13 @@ def test_put_config_round_trips_explicit_fallback_providers(monkeypatch, tmp_pat
     assert response.status_code == 202
     loaded = load_config_from_path(config_path)
     assert loaded.llm.fallback_provider == "claude"
-    assert loaded.llm.embedding.fallback_provider == "ollama"
+    assert loaded.llm.embedding.fallback_provider == "gemini"
 
     get_response = client.get("/api/config")
     assert get_response.status_code == 200
     body = get_response.json()
     assert body["llm"]["fallback_provider"] == "claude"
-    assert body["llm"]["embedding"]["fallback_provider"] == "ollama"
+    assert body["llm"]["embedding"]["fallback_provider"] == "gemini"
 
 
 def test_put_config_round_trips_embedding_multimodal_enabled(monkeypatch, tmp_path) -> None:

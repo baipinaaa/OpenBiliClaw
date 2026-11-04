@@ -5,7 +5,7 @@
 construction points do not all hold a ``Config`` reference, so the resolved
 policy is mirrored here once and consumed by every supported HTTP stack.
 
-CN-direct clients (bilibili / douyin / ollama / CN-CDN image cache) MUST NOT
+CN-direct clients (bilibili / douyin / CN-CDN image cache) MUST NOT
 read this module — that isolation is pinned by
 ``tests/test_network_proxy_isolation.py``.
 """

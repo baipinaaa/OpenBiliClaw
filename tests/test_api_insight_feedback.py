@@ -45,8 +45,8 @@ def _isolate_runtime_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     project_root = tmp_path / "runtime"
     monkeypatch.setenv("OPENBILICLAW_PROJECT_ROOT", str(project_root))
     cfg = Config()
-    cfg.llm.default_provider = "ollama"
-    cfg.llm.ollama.model = "llama3"
+    cfg.llm.default_provider = "deepseek"
+    cfg.llm.deepseek.api_key = "test-key"
     save_config(cfg, project_root / "config.toml")
 
 

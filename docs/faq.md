@@ -33,7 +33,7 @@ xattr -dr com.apple.quarantine "$APP"
 
 ### 想用 Docker 部署后端？
 
-不需要克隆源码：下载一个 compose 文件启动预构建镜像（自带 Ollama embedding sidecar），再打开 `http://127.0.0.1:8420/setup/` 完成初始化：
+不需要克隆源码：下载一个 compose 文件启动预构建镜像，再打开 `http://127.0.0.1:8420/setup/` 完成初始化：
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/whiteguo233/OpenBiliClaw/main/docker-compose.prebuilt.yml
@@ -55,11 +55,11 @@ docker compose -f docker-compose.prebuilt.yml up -d
 
 ### 初始化需要哪些前置条件？
 
-三样：① 至少一个已登录且能拉到信号的内容平台（B 站默认勾选，可换成小红书 / 抖音 / YouTube / X / 知乎 / Reddit）；② 一个可用的 LLM provider（自己的 API Key）；③ embedding 服务（桌面包内置，其他安装方式可用 Ollama）。引导初始化会先真实验证 LLM 和 embedding 再开跑，不会硬跑出空画像。
+三样：① 至少一个已登录且能拉到信号的内容平台（B 站默认勾选，可换成小红书 / 抖音 / YouTube / X / 知乎 / Reddit）；② 一个可用的 LLM provider（自己的 API Key）；③ embedding 服务（Gemini / OpenAI / 自建 OpenAI 兼容网关，任意一个即可）。引导初始化会先真实验证 LLM 和 embedding 再开跑，不会硬跑出空画像。
 
 ### 不想为 embedding 单独配 API Key？
 
-装一次 [Ollama](https://ollama.com/download)，然后运行 `openbiliclaw setup-embedding`，向导会自动拉取 `bge-m3`（约 568MB，CPU 可跑）并写入配置。桌面安装包已内置，无需额外操作。
+没有免 Key 的本地方案了：本版本不内置本地推理运行时。最省事的是复用已有的 Gemini Key（免费档每天 1500 次足够日常使用），运行 `openbiliclaw setup-embedding` 选择「云端 Gemini embedding」即可；也可以把它关掉（`provider = ""`），语义去重与多样性会退化成字符级策略。
 
 ### 手机打不开移动端 Web（`/m/`）？
 

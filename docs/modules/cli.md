@@ -103,7 +103,7 @@ PYTHONPATH=src python scripts/validate_jev_single_pass.py --live --confirm-free-
 | `fetch-v2ex` | 只读验证 V2EX 发布、讨论、收藏主题、收藏 Node 四个 bootstrap scope（不写 memory、不调用 LLM） | ✅ |
 | `fetch-instagram` | 只读验证 Instagram 点赞、收藏、关注三个初始化 scope（默认 smoke，不写 memory、不重建画像） | ✅ |
 | `import-youtube <path>` | 从 Google Takeout 导入 YouTube 历史 / 订阅 / 点赞 | ✅ |
-| `setup-embedding` | 配置本地 Ollama 作为独立 embedding provider（可选） | ✅ |
+| `setup-embedding` | 独立配置 embedding provider（Gemini / OpenAI 兼容 / 其它，可选） | ✅ |
 | `embedding-cache-stats` | 查看 embedding L2 持久化缓存诊断（行数、载荷、文件/WAL 大小、namespace 分布、容量水位、最近维护） | ✅ |
 | `embedding-cache-clean` | 清理 embedding L2 缓存：迁移旧 JSON 为二进制 + 回收失效 namespace + 物理回收磁盘（默认 dry-run；`--apply` 生效；`--keep-model` / `--keep-legacy` / `--no-compact` / `--batch-size`） | ✅ |
 | `recommend` | 查看推荐 | ✅ |
@@ -266,7 +266,7 @@ $ openbiliclaw health-check
 Provider 健康检查
   openai-official (default): 可用
   deepseek: 可用
-  ollama: 不可用
+  gemini: 不可用
     原因: connection refused
 ```
 
@@ -442,7 +442,6 @@ $ openbiliclaw start --host 0.0.0.0 --port 9000
 
 数据库健康后、API server 启动前，`start` 还会执行自启动相关的轻量 reconcile：
 
-- 如果当前 LLM / embedding 配置需要本机 Ollama、`[autostart].manage_ollama=true` 且 endpoint 是默认 `localhost:11434`，会探测 `/api/version`；未运行时尝试后台执行 `ollama serve`。远端或自定义 loopback 端口只探测，不强行拉起。
 - 如果 `[autostart].enabled=true` 但系统登录项缺失，会在没有环境变量管理风险时重新注册当前用户登录项；发现 `OPENBILICLAW_*` / provider API key 等环境变量覆盖时只告警并跳过，避免注册一个下次登录拿不到配置的启动项。
 - 如果 `[autostart].enabled=false` 但系统登录项仍残留，会尝试移除该当前用户登录项，让手动编辑配置后的下一次启动也能回到关闭状态。
 - 上述对账由 `runtime.autostart.reconcile()` 提供，冻结桌面包入口也调用同一实现；Windows 安装包不再因绕过 `openbiliclaw start` 而漏掉残留清理。
@@ -869,13 +868,13 @@ Instagram opt-in 的第 4 阶段传递本次来源选择，CLI 与 API 共用 so
 >
 > **进度感知期限（v0.3.179+）**：阶段 2 不再使用开跑前算死的固定墙钟——墙钟分不清“卡死”和“慢但在出结果”，健康但慢的服务商会在出结果的途中被杀。`_await_with_progress_deadline` 改为同时施加两个限制：**空闲期限**（`_INIT_PROGRESS_IDLE_SECONDS = 600s`，只有真实分片完成回调会刷新“上次进展”时间戳，心跳 tick 不算）与**绝对上限**（`_INIT_PROGRESS_ABSOLUTE_SECONDS = 2700s`，与按并发波次自适应算出的旧预算取较大值）。两种超时抛出可区分的 `_InitIdleTimeoutError` / `_InitAbsoluteTimeoutError`（均为 `TimeoutError` 子类），对应两条不同的可操作文案：空闲超时指向 Base URL / 模型名 / 代理排查，绝对超时提示换更快的模型并附上已完成批次。显式传入 `profile_analysis_timeout_seconds` 时仍是精确的纯墙钟（`<=0` 表示不限）。阶段 4 有真实进度信号，同样启用双限制（空闲 900s / 绝对 2700s）；阶段 3 是单次 LLM 调用、无分片进度可读，空闲判定天然失真，因此**只有绝对兜底**（1800s）。所有上限均为**卡死兜底、不是性能预期**；`CancelledError` 一律向上传播，被中断的初始化仍记为 `cancelled`。GUI 的 `stages[].progress.max_seconds` 发布的就是这个绝对上限。
 
-安装渠道里的首选路径是 `scripts/agent_bootstrap.py` 自动运行 init：Bash / PowerShell 人类一行安装会先在终端向导里按顺序确认 LLM、embedding、B 站 Cookie 和各来源 opt-in；Docker / AI agent / CI 非交互安装则通过显式 flags 和 `BOOTSTRAP_STATUS` 推进，不会阻塞读 stdin。bootstrap 随后会对默认 LLM provider 与 embedding 服务各做一次轻量真实调用；两者都可用才触发本命令。若 bootstrap 返回 `service_check_failed`，说明 `openbiliclaw init` 尚未运行，应先修 API key / base_url / model / Ollama，再重跑 bootstrap。直接执行 `openbiliclaw init` 仍保留为高级手动 fallback 和重复初始化入口。
+安装渠道里的首选路径是 `scripts/agent_bootstrap.py` 自动运行 init：Bash / PowerShell 人类一行安装会先在终端向导里按顺序确认 LLM、embedding、B 站 Cookie 和各来源 opt-in；Docker / AI agent / CI 非交互安装则通过显式 flags 和 `BOOTSTRAP_STATUS` 推进，不会阻塞读 stdin。bootstrap 随后会对默认 LLM provider 与 embedding 服务各做一次轻量真实调用；两者都可用才触发本命令。若 bootstrap 返回 `service_check_failed`，说明 `openbiliclaw init` 尚未运行，应先修 API key / base_url / model，再重跑 bootstrap。直接执行 `openbiliclaw init` 仍保留为高级手动 fallback 和重复初始化入口。
 
 默认初始化信号上限：B 站观看历史最多 500 条、收藏最多 500 条（跨收藏夹总预算，单个收藏夹会按页补齐）、关注 UP 最多 100 人；小红书 / 抖音 / YouTube 的 `bootstrap_profile` 每个 scope 默认最多 300 条；知乎 `bootstrap_events` 的四个分支默认各最多 300 条；Reddit 三个分支与 Linux.do 三个分支默认各最多 300 条；Bangumi 公开收藏使用 `[sources.bangumi].bootstrap_limit`，GitHub 公开 Star 使用 `[sources.github].bootstrap_limit`，两者默认均为 300。GitHub 还用 `bootstrap_max_pages=10` 作分页安全上限，不在未证明完整时冒充 full snapshot。交互式 `init` 会让用户确认 B 站收藏 / 关注上限；脚本化场景可传 `--bilibili-favorite-limit N` / `--bilibili-follow-limit N`，传 `0` 表示跳过对应信号。
 
 Instagram `bootstrap_events` 的 liked / saved / following 使用 `[sources.instagram].bootstrap_limit`（默认及最大 300）；到达上限保留 partial，不声明完整快照。
 
-v0.3.95+：交互式 `init` 的 embedding 配置阶段（`_interactive_embedding_setup(auto_if_ready=True)`）会先探测本机 Ollama——若 Ollama 已运行且装有 `bge-m3`，直接写入 `provider=ollama, model=bge-m3` 并跳过选项菜单，避免「确认用 Ollama 当聊天模型、却把语义去重所需的 embedding 留空」导致推荐刷到换皮重复。显式 `setup-embedding` 命令不走自动跳过，始终展示完整菜单以便切换 provider。
+交互式 `init` 的 embedding 配置阶段（`_interactive_embedding_setup()`）与显式 `setup-embedding` 命令走同一套菜单：默认推荐云端 Gemini embedding，也可以留空禁用或指向自建 OpenAI 兼容网关。留空时语义去重 / 多样性等功能自动降级，不会阻塞推荐主流程。
 
 ```bash
 $ openbiliclaw init
@@ -983,7 +982,7 @@ OpenBiliClaw 需要一个语言模型来理解你的兴趣、写推荐文案。
  9   API Route 聚合                        默认 gpt-5.5。一个 Key 跑多家模型,按调用计费
 10   Cheaper Inference 聚合                默认 gpt-5.4-mini。一个 Key 跑多家模型,按调用计费
 
-Tip:不确定就选 1 (DeepSeek),¥0.001/千 token 几乎免费,月度通常 ¥0.5-2。已经买了中转站 / OneAPI Key 选 2 (协议兼容)。本地 Ollama 仅用于向量检索(embedding),不作为聊天服务商;如需本地聊天模型请到设置页手动配置。
+Tip:不确定就选 1 (DeepSeek),¥0.001/千 token 几乎免费,月度通常 ¥0.5-2。已经买了中转站 / OneAPI Key 选 2 (协议兼容)。自建 vLLM / LM Studio / OneAPI 网关请选 2 并把 base_url 指向自己的服务。
 
 请输入序号或名称（默认 1=DeepSeek） [1]:
 
@@ -991,17 +990,12 @@ Tip:不确定就选 1 (DeepSeek),¥0.001/千 token 几乎免费,月度通常 ¥0
 #  例如选 1/3/4/5/6/7/8: 只问 API Key + 模型名；
 #  选 2: 进协议兼容 preset 子菜单，按需问 Base URL + API Key + 模型名)
 #
-# 注意（v0.3.176+）：本地 Ollama 已不再出现在聊天 provider 菜单里——随装的
-# Ollama 只带 embedding 模型（bge-m3），小体积本地聊天模型达不到内容管线质量线。
-# 后端注册表 / 桌面设置页仍支持 ollama 聊天；既有配置或显式 flag 选择
-# `ollama` 依然被接受，只是不再交互式「提供」它。
 
 Embedding(向量化)服务
 把视频标题/简介压成向量,跨视频做相似度对比 —— 决定"这条和你之前喜欢的那条是不是同一类"。和聊天 LLM 是分开的。
 
  #   方案                                  说明
- 1   本地 Ollama bge-m3 ★默认推荐           免费 / 离线 / 不消耗主 LLM 配额(自动装 Ollama + 拉 568MB 模型)
- 2   云端 Gemini embedding                 质量略高 / 跨语言更稳;免费档每天 1500 次,日常够用,需 Gemini Key
+ 1   云端 Gemini embedding ★默认推荐        质量略高 / 跨语言更稳;免费档每天 1500 次,日常够用,需 Gemini Key
  3   暂不启用 embedding                    保留独立配置为空;不会跟随主 LLM,也不会自动 fallback
  4   (高级)自定义 OpenAI 兼容服务           vLLM / OneAPI / 自建网关 —— 自填 base_url
  5   (高级)指定其他 provider               手动选 provider + 模型 + 可选 base_url
@@ -1039,8 +1033,6 @@ Cookie 只存在你本机 data/bilibili_cookie.json，不会上传任何地方�
 > 当 `agent_bootstrap` 通过 `--provider` 或 `--llm-preset` 选择非 DeepSeek provider 时，会自动停用样例中无 API Key 的 DeepSeek 实例并将其从 `default_chain` 移除，避免 `init` 因未配置的默认实例失败；已填写 API Key 的 DeepSeek 备选实例会保留。
 > **DeepSeek 排第一**是有意为之：它是当前最低摩擦路径，国内可直连且费用接近忽略不计。
 >
-> **本地 Ollama 不再作为聊天 provider 出现在菜单里（v0.3.176+）**：随装的 Ollama 定位是 embedding（bge-m3），聊天模型需自行 `ollama pull` 且小模型跑内容管线质量不达标。后端注册表与桌面设置页仍支持 Ollama chat 实例，供进阶用户使用；旧 `default_provider = "ollama"` 或显式 flag 也仍被接受，交互式向导只是不再主动提供它。同一口径也适用于 `scripts/agent_bootstrap.py` 的人类安装菜单。
-
 Provider 选择只决定本次创建或提升哪个全局实例，不会把 `default_chain` 压缩成单项。高级的模块 `provider/model` 问答会写成 `inherit=false` 的模块实例链；若模型不同于现有实例，会创建一个派生实例来保留覆盖，而不会修改共享实例。
 
 首次 `init` 的 discover 阶段可能持续几分钟，因为它会真实访问 B 站接口并调用当前 provider 进行候选打分与表达生成。
@@ -1063,14 +1055,13 @@ openbiliclaw discover
 
 ```bash
 $ openbiliclaw setup-embedding
-配置本地 embedding · Ollama + bge-m3
+配置 embedding · 云端 Gemini / OpenAI 兼容 / 其它 provider
 
  #   方案                                  说明
- 1   本地 Ollama bge-m3 ★默认推荐           免费 / 离线 / 不消耗主 LLM 配额(自动装 Ollama + 拉 568MB 模型)
- 2   云端 Gemini embedding                 质量略高 / 跨语言更稳;免费档每天 1500 次,日常够用,需 Gemini Key
- 3   暂不启用 embedding                    保留独立配置为空;不会跟随主 LLM,也不会自动 fallback
- 4   (高级)自定义 OpenAI 兼容服务           vLLM / OneAPI / 自建网关 —— 自填 base_url
- 5   (高级)指定其他 provider               手动选 provider + 模型 + 可选 base_url
+ 1   云端 Gemini embedding ★默认推荐        质量略高 / 跨语言更稳;免费档每天 1500 次,日常够用,需 Gemini Key
+ 2   暂不启用 embedding                    保留独立配置为空;不会跟随主 LLM,也不会自动 fallback
+ 3   (高级)自定义 OpenAI 兼容服务           vLLM / LMStudio / OneAPI / 自建网关 —— 自填 base_url
+ 4   (高级)指定其他 provider               手动选 provider + 模型 + 可选 base_url
  0   跳过(不修改当前 embedding 配置)
 请选择 embedding 方案 [1]:
 ```
@@ -1079,37 +1070,19 @@ $ openbiliclaw setup-embedding
 
 | 选项 | 行为 | 写入字段 |
 |---|---|---|
-| 1 | 本地 Ollama，自动探测 + 拉取 `bge-m3` | `[llm.embedding] provider="ollama" model="bge-m3" base_url="http://localhost:11434/v1"` |
-| 2 | 云端 Gemini embedding，可复用已有 Gemini Key | `[llm.embedding] provider="gemini" model="gemini-embedding-001" api_key="..."` |
-| 3 | 暂不启用 embedding | `[llm.embedding] provider="" model=""`；运行时不会跟随主 LLM |
-| 4 | 自填 base_url + api_key + model | `[llm.embedding] provider="openai" model="..." base_url="..." api_key="..."` |
-| 5 | 选另一个已知 provider 走 embedding | `[llm.embedding] provider="<target>" model="..." base_url="..." api_key="..."` |
+| 1 | 云端 Gemini embedding，可复用已有 Gemini Key | `[llm.embedding] provider="gemini" model="gemini-embedding-001" api_key="..."` |
+| 2 | 暂不启用 embedding | `[llm.embedding] provider="" model=""`；运行时不会跟随主 LLM |
+| 3 | 自填 base_url + api_key + model | `[llm.embedding] provider="openai_compatible" model="..." base_url="..." api_key="..."` |
+| 4 | 选另一个已知 provider 走 embedding | `[llm.embedding] provider="<target>" model="..." base_url="..." api_key="..."` |
 | 0 | 跳过 | 不主动写入新 embedding 配置 |
-
-选项 1 时向导会按顺序：
-
-1. 探测 `localhost:11434/api/version`，确认 Ollama 服务在跑
-2. 通过 `/api/tags` 检查 `bge-m3` 是否已 pull
-3. 没拉就流式 `POST /api/pull`，进度直接打到终端
-4. 把 `[llm.embedding] provider="ollama" model="bge-m3" base_url="http://localhost:11434/v1"` 写入 `config.toml`
 
 适合：
 
-- embedding API Key 用完了
-- 离线 / 没外网
-- 不想再额外申请一份 embedding 服务密钥
-- 跨平台一致体验（Mac/Win/Linux 同一 HTTP API）
+- 主 LLM 走聊天套餐、embedding 想单独挑一个便宜的 provider
+- 想在内网 / 自建网关上跑 embedding（`openai_compatible` 指向 vLLM、LM Studio、OneAPI 等）
+- 切换 provider 后旧向量的 L2 缓存按新 provenance 自动隔离，不需要手动清库
 
-CPU 即可跑，单次 embedding 约 100-200ms，配合后台 prewarmer 实际"换一批" 仍能稳在 600ms。
-
-如果 Ollama 没安装：
-
-```bash
-检测不到 Ollama 服务（localhost:11434）。
-  Mac:     安装并启动官方 Ollama.app：https://ollama.com/download/mac
-  Windows: 从 https://ollama.com/download 下载安装包
-  装好后重新运行本命令即可启用。
-```
+> 本版本不内置任何本地推理运行时：embedding 一定是一次云端 / 自建网关的 HTTP 调用。
 
 ### `openbiliclaw embedding-cache-stats`
 
@@ -1134,8 +1107,8 @@ Embedding L2 缓存诊断 · data/embedding_cache.db
   最近维护        已删除 5,000 行 / 701.8 MiB
 Namespace 分布
   model  namespace  行数  载荷     状态
-  bge-m3#namespace=abc123  …  12,000  192.0 MiB  active
-  bge-m3#namespace=dead  …     2,419   38.0 MiB  inactive
+  gemini-embedding-001#namespace=abc123  …  12,000  192.0 MiB  active
+  gemini-embedding-001#namespace=dead  …     2,419   38.0 MiB  inactive
 ```
 
 命令会顺带执行与 daemon 相同的一次性运行时准备（legacy JSON → 二进制迁移，幂等）。

@@ -562,9 +562,9 @@ print(f"SERVICE_ERRORS={' | '.join(service_errors)}")
         Write-Host 'Next steps - ask the user before running init:'
         Write-Host ''
         Write-Host '  1. Embedding service (default recommendation):'
-        Write-Host '       Local Ollama bge-m3 - free/offline/no extra API key.'
-        Write-Host '       If they choose Gemini/OpenAI/custom instead, replace'
-        Write-Host '       the --embedding-* flags below.'
+        Write-Host '       Gemini embedding (gemini-embedding-001) - free tier available;'
+        Write-Host '       it needs a Gemini API key. OpenAI / custom OpenAI-compatible'
+        Write-Host '       endpoints work too - swap the --embedding-* flags below.'
         Write-Host ''
         Write-Host '  2. Source bootstrap data (privacy choice):'
         Write-Host '       Ask whether to include Xiaohongshu likes/favorites and'
@@ -577,8 +577,8 @@ print(f"SERVICE_ERRORS={' | '.join(service_errors)}")
         Write-Host "     python $InstallDir\scripts\agent_bootstrap.py ``"
         Write-Host "         --project-dir $InstallDir ``"
         if ($decisions -match 'embedding') {
-            Write-Host "         --embedding-provider ollama ``"
-            Write-Host "         --embedding-model bge-m3 ``"
+            Write-Host "         --embedding-provider gemini ``"
+            Write-Host "         --embedding-model gemini-embedding-001 ``"
         }
         Write-Host "         $xhsFlag ``"
         Write-Host "         $douyinFlag ``"
@@ -596,8 +596,8 @@ print(f"SERVICE_ERRORS={' | '.join(service_errors)}")
             Write-Host ''
         }
         Write-Host '  1. Fix the failing service:'
-        Write-Host '       - llm: check provider, API key, base_url/model, quota, or Ollama chat model.'
-        Write-Host '       - embedding: check [llm.embedding], API key/base_url/model, or run Ollama + pull bge-m3.'
+        Write-Host '       - llm: check provider, API key, base_url/model, or quota.'
+        Write-Host '       - embedding: check [llm.embedding], API key/base_url/model.'
         Write-Host '  2. Re-run the same bootstrap command after the fix (DO NOT add --skip-init).'
         Write-Host '     It will repeat the service checks and only then run openbiliclaw init.'
         Write-Host ''
@@ -614,7 +614,7 @@ print(f"SERVICE_ERRORS={' | '.join(service_errors)}")
         Write-Host "      re-run bootstrap so it can run 'openbiliclaw init'."
         Write-Host ''
         Write-Host '      Required before init:'
-        Write-Host '        - Embedding model/service (default: Ollama bge-m3)'
+        Write-Host '        - Embedding model/service (default: Gemini gemini-embedding-001)'
         Write-Host '        - Xiaohongshu likes/favorites? (default: no; yes only on opt-in)'
         Write-Host '        - Douyin post/favorite/like/follow? (default: no; yes only on opt-in)'
         Write-Host '        - YouTube history/subscriptions/likes? (default: no; yes only on opt-in)'
@@ -626,8 +626,8 @@ print(f"SERVICE_ERRORS={' | '.join(service_errors)}")
         Write-Host "            --project-dir $InstallDir ``"
         Write-Host "            --bilibili-cookie '<YOUR_COOKIE>' ``"
         if ($decisions -match 'embedding') {
-            Write-Host "            --embedding-provider ollama ``"
-            Write-Host "            --embedding-model bge-m3 ``"
+            Write-Host "            --embedding-provider gemini ``"
+            Write-Host "            --embedding-model gemini-embedding-001 ``"
         }
         Write-Host "            $xhsFlag ``"
         Write-Host "            $douyinFlag ``"
@@ -643,7 +643,7 @@ print(f"SERVICE_ERRORS={' | '.join(service_errors)}")
         Write-Host ''
         Write-Host '  1. Choose your LLM chat provider (default: deepseek):'
         Write-Host '     Supported: deepseek | openai | gemini | claude | openrouter | requesty | api_route | cheaperinference | openai_compatible'
-        Write-Host '     (Local Ollama is embedding-only here - not offered as a chat provider.)'
+        Write-Host '     (No local model runtime ships here - use openai_compatible for self-hosted.)'
         Write-Host ''
         if ($missing -match 'api_key') {
             Write-Host '     LLM API key - get one from your chosen provider:'
@@ -671,8 +671,8 @@ print(f"SERVICE_ERRORS={' | '.join(service_errors)}")
             Write-Host ''
         }
         Write-Host '  2. Ask which embedding service to use:'
-        Write-Host '     Default: local Ollama bge-m3 (free/offline/no extra API key).'
-        Write-Host '     Alternatives: Gemini embedding, OpenAI text-embedding-3-small,'
+        Write-Host '     Default: Gemini embedding (needs a Gemini API key; free tier).'
+        Write-Host '     Alternatives: OpenAI text-embedding-3-small,'
         Write-Host '     or a custom OpenAI-compatible embedding endpoint.'
         Write-Host ''
         Write-Host '  3. Ask whether to include source bootstrap data:'
@@ -687,8 +687,8 @@ print(f"SERVICE_ERRORS={' | '.join(service_errors)}")
         Write-Host "         --provider <YOUR_PROVIDER> ``"
         if ($missing -match 'api_key')         { Write-Host "         --llm-api-key '<YOUR_API_KEY>' ``" }
         if ($decisions -match 'embedding') {
-            Write-Host "         --embedding-provider ollama ``"
-            Write-Host "         --embedding-model bge-m3 ``"
+            Write-Host "         --embedding-provider gemini ``"
+            Write-Host "         --embedding-model gemini-embedding-001 ``"
         }
         Write-Host "         $xhsFlag ``"
         Write-Host "         $douyinFlag ``"
@@ -721,11 +721,9 @@ print(f"SERVICE_ERRORS={' | '.join(service_errors)}")
         Write-Host "      Set-Location $InstallDir ; uv run openbiliclaw init"
     }
     Write-Host ''
-    Write-Host 'Optional: enable local Ollama as the embedding fallback'
-    Write-Host '  (no extra API key needed; useful if your remote embedding quota runs out)'
-    Write-Host '      1. Install Ollama from https://ollama.com/download'
-    Write-Host '      2. Start Ollama (the desktop app launches the local service automatically)'
-    Write-Host '      3. Set-Location ' "$InstallDir" ' ; uv run openbiliclaw setup-embedding'
+    Write-Host 'Optional: switch the embedding provider (chat history / dedup resets)'
+    Write-Host '  Useful when your remote embedding quota runs out:'
+    Write-Host '      Set-Location ' "$InstallDir" ' ; uv run openbiliclaw setup-embedding'
     Write-Host ''
     Write-Host 'Optional recommendation director / Jev filter (disabled by default):'
     Write-Host '  Configure TOML only after opting in; fully restart the backend.'

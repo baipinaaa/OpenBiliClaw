@@ -148,8 +148,8 @@ class TestGetConfig:
 class TestUpdateConfig:
     def _ctx(self, **hooks: Any) -> AgentToolContext:
         config = Config()
-        config.llm.default_provider = "ollama"
-        config.llm.ollama.model = "test-model"
+        config.llm.default_provider = "deepseek"
+        config.llm.deepseek.api_key = "test-key"
         return AgentToolContext(config=config, **hooks)
 
     async def test_invalid_runtime_config_never_reaches_disk(self, tmp_path: Path) -> None:
@@ -166,7 +166,7 @@ class TestUpdateConfig:
         )
         assert not result.ok
         assert "llm.default_provider" in result.content
-        assert ctx.config.llm.default_provider == "ollama"
+        assert ctx.config.llm.default_provider == "deepseek"
         assert path.read_text() == original
         assert reloaded == []
 

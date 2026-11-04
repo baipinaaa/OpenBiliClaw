@@ -148,7 +148,10 @@ def stability_server() -> tuple[str, StabilityStub]:
                         "config": {
                             "sources": {"bilibili": {"enabled": True}},
                             "scheduler": {},
-                            "llm": {"default_provider": "ollama", "ollama": {}},
+                            "llm": {
+                                "default_provider": "deepseek",
+                                "deepseek": {"api_key": "test-key"},
+                            },
                         }
                     },
                 )

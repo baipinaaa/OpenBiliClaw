@@ -59,13 +59,10 @@ function disabledHint(status) {
 }
 
 function enabledHint(status) {
-  const ollamaCopy = status?.manage_ollama
-    ? "；本机 Ollama 配置会在需要时顺带拉起"
-    : "";
   if (status?.registered === false) {
-    return `配置已开启，但系统注册缺失；下次后端启动会尝试修复${ollamaCopy}。`;
+    return "配置已开启，但系统注册缺失；下次后端启动会尝试修复。";
   }
-  return `已开启：下次登录系统会拉起后端，不启停当前进程${ollamaCopy}。`;
+  return "已开启：下次登录系统会拉起后端，不启停当前进程。";
 }
 
 function activeHint(status) {

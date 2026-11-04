@@ -476,51 +476,6 @@ def test_close_splash_noop_without_pyi_splash() -> None:
     entry._close_splash()  # must not raise
 
 
-def test_ensure_embedding_model_async_reports_global_pull_progress(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from openbiliclaw.config import Config
-    from openbiliclaw.runtime import embedding_progress
-
-    cfg = Config()
-    cfg.llm.embedding.provider = "ollama"
-    cfg.llm.embedding.model = "bge-m3"
-    cfg.llm.embedding.base_url = "http://localhost:11434/v1"
-    pulled: list[tuple[str, str]] = []
-    running_at_thread_start: list[bool] = []
-
-    class _InlineThread:
-        def __init__(self, *, target, name=None, daemon=None) -> None:
-            self._target = target
-
-        def start(self) -> None:
-            running_at_thread_start.append(embedding_progress.snapshot()["running"])
-            self._target()
-
-    async def fake_pull(base_url: str, model: str, *, on_progress=None, **_kw: object):
-        pulled.append((base_url, model))
-        if on_progress is not None:
-            on_progress("downloading", 240 * 1024 * 1024, 568 * 1024 * 1024)
-        return (True, "")
-
-    monkeypatch.setattr(entry.threading, "Thread", _InlineThread)
-    monkeypatch.setattr("openbiliclaw.config.load_config", lambda: cfg)
-    monkeypatch.setattr("openbiliclaw.cli._ollama_has_model", lambda *_args: False)
-    monkeypatch.setattr("openbiliclaw.llm.ollama_diagnostics.pull_ollama_model", fake_pull)
-
-    entry._ensure_embedding_model_async()
-
-    snap = embedding_progress.snapshot()
-    assert running_at_thread_start == [True]
-    assert pulled == [("http://localhost:11434/v1", "bge-m3")]
-    assert snap["running"] is False
-    assert snap["done"] is True
-    assert snap["ok"] is True
-    assert snap["model"] == "bge-m3"
-    assert snap["completed"] == 240 * 1024 * 1024
-    assert snap["total"] == 568 * 1024 * 1024
-
-
 def test_main_source_selftest_does_not_migrate_ignored_project_data(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -544,7 +499,6 @@ def test_main_source_selftest_does_not_migrate_ignored_project_data(
     monkeypatch.setattr(entry, "_redirect_output_to_logfile", lambda _root: None)
     monkeypatch.setattr(entry, "_notify_starting", lambda: None)
     monkeypatch.setattr(entry, "_copy_legacy_packaged_user_data", lambda *_args: None)
-    monkeypatch.setattr(entry, "_inject_bundled_ollama_on_path", lambda _resources: False)
     monkeypatch.setattr(entry, "_seed_default_config", lambda *_args: False)
     monkeypatch.setattr(
         entry,
@@ -618,7 +572,6 @@ def test_main_recovers_apply_journal_before_seeding_or_creating_targets(
     monkeypatch.setattr(entry, "_redirect_output_to_logfile", lambda _root: None)
     monkeypatch.setattr(entry, "_notify_starting", lambda: None)
     monkeypatch.setattr(entry, "_copy_legacy_packaged_user_data", lambda *_args: None)
-    monkeypatch.setattr(entry, "_inject_bundled_ollama_on_path", lambda _resources: False)
     monkeypatch.setattr(entry.atexit, "register", lambda *_args, **_kwargs: None)
 
     events: list[str] = []
@@ -712,9 +665,6 @@ def test_main_uses_configured_api_host_when_env_host_unset(
     monkeypatch.setattr(entry, "_redirect_output_to_logfile", lambda _root: None)
     monkeypatch.setattr(entry, "_notify_starting", lambda: None)
     monkeypatch.setattr(entry, "_migrate_legacy_install_dir_data", lambda *_args: None)
-    monkeypatch.setattr(entry, "_inject_bundled_ollama_on_path", lambda _resources: False)
-    monkeypatch.setattr(entry, "_packaged_ollama_preflight", lambda: None)
-    monkeypatch.setattr(entry, "_ensure_embedding_model_async", lambda: None)
     monkeypatch.setattr(entry, "_close_splash", lambda: None)
     monkeypatch.setattr(entry, "_should_use_tray", lambda: False)
     monkeypatch.setattr(entry.webbrowser, "open", lambda _url: True)
@@ -839,9 +789,6 @@ def test_main_opens_setup_after_repairing_unloadable_config(
     monkeypatch.setattr(entry, "_notify_starting", lambda: None)
     monkeypatch.setattr(entry, "_copy_legacy_packaged_user_data", lambda *_args: None)
     monkeypatch.setattr(entry, "_migrate_legacy_install_dir_data", lambda *_args: None)
-    monkeypatch.setattr(entry, "_inject_bundled_ollama_on_path", lambda _resources: False)
-    monkeypatch.setattr(entry, "_packaged_ollama_preflight", lambda: None)
-    monkeypatch.setattr(entry, "_ensure_embedding_model_async", lambda: None)
     monkeypatch.setattr(entry, "_close_splash", lambda: None)
     monkeypatch.setattr(entry, "_should_use_tray", lambda: False)
     opened: list[str] = []
@@ -953,9 +900,6 @@ def test_main_disables_uvicorn_access_log_in_tray_mode(
         "_migrate_legacy_install_dir_data",
         lambda *args: migration_calls.append(args),
     )
-    monkeypatch.setattr(entry, "_inject_bundled_ollama_on_path", lambda _resources: False)
-    monkeypatch.setattr(entry, "_packaged_ollama_preflight", lambda: None)
-    monkeypatch.setattr(entry, "_ensure_embedding_model_async", lambda: None)
     monkeypatch.setattr(entry, "_should_use_tray", lambda: True)
     monkeypatch.setattr(entry.webbrowser, "open", lambda _url: True)
 

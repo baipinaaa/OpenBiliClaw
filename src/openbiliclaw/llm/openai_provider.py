@@ -1133,8 +1133,8 @@ class OpenAIProvider(LLMProvider):
 
         Returns an empty list on failure so callers can degrade
         gracefully (the embedding service treats empty vectors as
-        "no embedding"). This matches the contract Gemini/Ollama
-        providers already follow.
+        "no embedding"). This matches the contract Gemini and
+        other providers already follow.
         """
         try:
             kwargs: dict[str, Any] = {"model": model, "input": text}
@@ -1424,7 +1424,7 @@ class DeepSeekProvider(OpenAIProvider):
     # inherited ``embed()`` would 404 at call time, which used to
     # silently break the recommendation pipeline for DeepSeek users
     # who never ran ``setup-embedding``. Marking it False makes
-    # ``build_embedding_service`` fall back to ollama / gemini.
+    # ``build_embedding_service`` fall back to gemini.
     supports_embedding = False
 
     def __init__(

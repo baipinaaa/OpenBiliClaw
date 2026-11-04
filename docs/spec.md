@@ -654,7 +654,7 @@ local Desktop Web / extension Settings → write-only /api/config → private bo
 │  │       + confusions FIFO(≤5/队头 fencing/12h 补扫) + 冻结/held 重放 + 深层门控 │ │
 │  │       (off/shadow 默认/enforce · 两接入点: 深层对话候选/soul 重建; 管线 VALUES·CORE 已封死) │ │
 │  │     Event provenance: created_at 永不入 prompt · 无 timestamp = 时间未知 · 存量关注聚合成一行 │ │
-│  │     Autostart: user login item + Ollama preflight/self-heal + Ollama.app runtime 校验 │ │
+│  │     Autostart: user login item + registration reconcile + endpoint health self-heal   │ │
 │  │     Bili DOM fallback + XHS/Douyin/YouTube/X/Zhihu/Reddit/Linux.do/Bangumi/V2EX/Weibo/GitHub producers: 按平台缺口独立补池 │ │
 │  │     CLI discover --source douyin -> 同一正式 producer -> 统一关键词终态 -> pending eval │ │
 │  │     Hot reload one-shots: interest/avoidance force_tick │   │
@@ -766,14 +766,14 @@ local Desktop Web / extension Settings → write-only /api/config → private bo
 │  配置恢复草稿（正常/降级）→ probe 临时 registry / 精确实例 GET /models（不写盘）│
 │  ┌──────────────────────────┐  ┌────────────────────────┐   │
 │  │ OpenAI / Claude / Gemini │  │ EmbeddingService       │   │
-│  │ DeepSeek / Ollama /      │  │ L1 内存 + L2 SQLite    │   │
-│  │ OpenRouter / OrcaRouter  │  │ Ollama bge-m3 兜底可选  │   │
+│  │ DeepSeek / DashScope/    │  │ L1 内存 + L2 SQLite    │   │
+│  │ OpenRouter / OrcaRouter  │  │ 远端 embedding 可选     │   │
 │  │ Requesty / API Route     │  │                        │   │
 │  │ Cheaper Inference        │  │                        │   │
 │  └──────────────────────────┘  └────────────────────────┘   │
 │  可选视觉 / 弹幕预热：质心、关键帧、完整 document embedding；endpoint provenance + stable slot retry │
-│  Local embedding: auto GPU → runner failure → CPU → validated vector      │
-│  Desktop bundle: official Ollama.app runtime (ollama + runner dylibs/assets) │
+│  Cloud embedding: provider HTTP call → vector, no local runtime           │
+│  Desktop bundle: no local model runtime; chat + embedding use remote APIs    │
 │  LLMService caller bucket → inherit global chain / custom chain │
 │  cognition named views → task gate: awareness_confusions compact; others legacy │
 │    └→ token diet: preference packing + weighted recent/judged/relevant/important insight≤40 → full merge │

@@ -193,13 +193,13 @@ def test_classify_llm_unavailability_returns_none_for_unrelated_error() -> None:
 
 
 def test_classify_llm_unavailability_model_not_found_through_chain() -> None:
-    # Real shape from the guided-init log: ollama 404 for a model never pulled,
+    # Real shape from the guided-init log: a 404 for a model the provider does not serve,
     # wrapped up through the preference-analysis path. Loops must treat this as
     # an expected, calmly-logged deferral — not an "Unexpected error" traceback.
     try:
         try:
             raise LLMProviderError(
-                "ollama request failed: HTTP 404: "
+                "provider request failed: HTTP 404: "
                 '{"message": "model \'llama3\' not found, try pulling it first", '
                 '"type": "not_found_error"}'
             )
@@ -224,7 +224,7 @@ def test_classify_llm_unavailability_rate_limit_wins_over_no_provider() -> None:
         (LLMProviderError("HTTP 401 unauthorized: invalid api key"), "auth_failed"),
         (
             LLMProviderError(
-                "ollama request failed: HTTP 404: "
+                "provider request failed: HTTP 404: "
                 '{"code": null, "message": "model \'llama3\' not found, try pulling '
                 'it first", "param": null, "type": "not_found_error"}'
             ),
@@ -393,14 +393,14 @@ def test_describe_llm_failure_deepseek_content_exists_risk() -> None:
 def test_describe_llm_failure_model_not_found() -> None:
     reason = describe_llm_failure(
         LLMProviderError(
-            "ollama request failed: HTTP 404: "
+            "provider request failed: HTTP 404: "
             '{"message": "model \'llama3\' not found, try pulling it first", '
             '"type": "not_found_error"}'
         )
     )
     assert reason is not None
     assert "找不到所配置的模型" in reason
-    assert "ollama pull" in reason.lower() or "拉取" in reason
+    assert "设置页" in reason
 
 
 def test_describe_llm_failure_no_provider() -> None:
@@ -1255,11 +1255,10 @@ async def test_llm_service_default_dialogue_tone_prompt_leaves_prompt_untouched(
     assert "- 信息密度" in registry.calls[0][0]["content"]
 
 
-def test_remote_model_missing_does_not_blame_local_ollama() -> None:
+def test_remote_model_missing_does_not_blame_local_runtime() -> None:
     reason = describe_llm_failure(
         LLMProviderError("remote gateway HTTP 404: model 'configured-model' not found")
     )
     assert reason is not None
-    assert "Ollama" not in reason
-    assert "ollama pull" not in reason
+    assert "本地" not in reason
     assert "模型" in reason

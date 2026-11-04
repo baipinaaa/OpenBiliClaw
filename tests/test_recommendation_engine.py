@@ -3034,7 +3034,7 @@ async def test_e2e_precompute_pool_copy_classifies_then_copies_in_one_pass(
 async def test_prewarm_pool_mmr_embeddings_signals_distinguish_states() -> None:
     """Lever 4: prewarm's return distinguishes a benign cold start (-1) from a
     genuinely-unreachable embedding backend (0), so operators can tell
-    "pool empty / embeddings off" apart from "Ollama is down" — the original
+    "pool empty / embeddings off" apart from "the embedding provider is down" — the original
     `warmed=0` ambiguity.
     """
 

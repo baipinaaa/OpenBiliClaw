@@ -6,7 +6,7 @@ desktop application packaged via PyInstaller.
 The layout differs between onedir and macOS ``.app`` bundle outputs:
 
 * **onedir** (``dist/OpenBiliClaw/OpenBiliClaw``) — the executable and its
-  bundled resources (``config.example.toml``, ``ollama``) live in the install
+  bundled resources (``config.example.toml``) live in the install
   directory, which Setup overwrites on upgrade and may remove on uninstall.
   User data therefore lives in the same per-user root used by the one-line /
   AI installers (``%USERPROFILE%\\OpenBiliClaw`` on Windows,
@@ -18,17 +18,15 @@ The layout differs between onedir and macOS ``.app`` bundle outputs:
   ``config.example.toml`` is placed under ``Contents/Resources`` by PyInstaller
   and seeded into the user's data dir on first launch.
 
-In both packaged layouts the read-only bundle provides the template config +
-``ollama`` while user data lives under :func:`_user_data_root`.
+In both packaged layouts the read-only bundle provides the template config
+while user data lives under :func:`_user_data_root`.
 """
 
 from __future__ import annotations
 
-import asyncio
 import atexit
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -200,7 +198,7 @@ def _resolve_runtime_paths() -> tuple[Path, Path]:
 
     ``project_root`` is where ``config.toml`` / ``data/`` / ``logs/`` live.
     ``bundled_resources`` is the read-only directory holding the default
-    ``config.example.toml`` (and bundled ``ollama``) shipped with the package.
+    ``config.example.toml`` shipped with the package.
 
     An explicit ``OPENBILICLAW_PROJECT_ROOT`` env var overrides ``project_root``
     (portable installs, multiple profiles, isolated tests); bundled resources are
@@ -222,7 +220,7 @@ def _resolve_runtime_paths() -> tuple[Path, Path]:
     # onedir layout (Windows): the install dir is overwritten on upgrade and may
     # be removed on uninstall, so user data lives in a per-user root instead of
     # next to the executable. The install dir still provides the bundled template
-    # config + ollama as read-only resources.
+    # config as read-only resources.
     bundled_resources = exe_dir
     return (Path(override) if override else _user_data_root()), bundled_resources
 
@@ -231,8 +229,8 @@ def _seed_default_config(project_root: Path, bundled_resources: Path) -> bool:
     """Copy the bundled ``config.example.toml`` into ``project_root`` on first run.
 
     Returns ``True`` only when a fresh ``config.toml`` was just created, so the
-    caller can apply packaged-only first-run defaults (e.g. enabling the bundled
-    Ollama embedding) without ever overriding a config the user already has.
+    caller can apply packaged-only first-run defaults without ever overriding a
+    config the user already has.
     """
     config_path = project_root / "config.toml"
     if config_path.exists():
@@ -342,292 +340,6 @@ def _repair_unloadable_config(project_root: Path, bundled_resources: Path) -> _C
             regenerated_default = _seed_default_config(project_root, bundled_resources)
 
     return _ConfigRepairResult(repaired=repaired, regenerated_default=regenerated_default)
-
-
-def _bundled_ollama_path(bundled_resources: Path) -> Path | None:
-    """Return the packaged ``ollama`` executable shipped beside the app, if any."""
-    name = "ollama.exe" if os.name == "nt" else "ollama"
-    candidate = bundled_resources / name
-    return candidate if candidate.exists() else None
-
-
-def _inject_bundled_ollama_on_path(bundled_resources: Path) -> bool:
-    """Prepend the bundled ollama's directory to ``PATH``.
-
-    The runtime talks to Ollama purely over HTTP and locates the binary via
-    ``shutil.which("ollama")`` (in ``runtime/ollama_supervisor.py``). Putting the
-    bundled binary first on ``PATH`` lets every existing code path — health
-    probe, ``ollama serve`` preflight, model pull — find it with **zero** changes
-    to the reviewed runtime code, while still honouring a user-installed ollama
-    if they prefer one (we only prepend, never replace).
-    """
-    ollama = _bundled_ollama_path(bundled_resources)
-    if ollama is None:
-        return False
-    if os.name != "nt":
-        with suppress(Exception):
-            os.chmod(ollama, 0o755)  # zip/copy roundtrips can drop the +x bit
-    bin_dir = str(ollama.parent)
-    current = os.environ.get("PATH", "")
-    if bin_dir not in current.split(os.pathsep):
-        os.environ["PATH"] = bin_dir + os.pathsep + current
-    return True
-
-
-def _enable_ollama_embedding_default(config_path: Path) -> None:
-    """Flip ``[llm.embedding].provider`` to ``ollama`` in a freshly seeded config.
-
-    Only touches the single ``provider = ""`` line inside the ``[llm.embedding]``
-    block so the heavily-commented template stays intact (a ``save_config``
-    round-trip would strip every comment). No-op if the user already picked a
-    provider. This is what makes the bundled Ollama actually drive embedding
-    out of the box; without it the shipped binary would sit idle.
-    """
-    try:
-        lines = config_path.read_text(encoding="utf-8").splitlines(keepends=True)
-    except OSError:
-        return
-    in_block = False
-    changed = False
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            in_block = stripped == "[llm.embedding]"
-            continue
-        if in_block and not changed and re.match(r'\s*provider\s*=\s*""', line):
-            indent = line[: len(line) - len(line.lstrip())]
-            lines[i] = f'{indent}provider = "ollama"\n'
-            changed = True
-            break
-    if changed:
-        config_path.write_text("".join(lines), encoding="utf-8")
-        print("[OpenBiliClaw] 已默认启用本地 Ollama embedding (bge-m3)")
-
-
-def _default_ollama_to_embedding_only(config_path: Path) -> None:
-    """Blank the legacy preset ``[llm.ollama] model`` for packaged upgrades.
-
-    The v2 template marks its Ollama chat instance disabled, so it needs no
-    mutation. This path remains only for an older copied config where a
-    non-empty ``[llm.ollama].model`` implicitly made Ollama chat-capable.
-    """
-    try:
-        text = config_path.read_text(encoding="utf-8")
-    except OSError:
-        return
-    if "[llm.instances." in text:
-        return
-    provider = re.search(r'(?m)^\s*default_provider\s*=\s*"([^"]*)"', text)
-    if provider and provider.group(1).strip().lower() == "ollama":
-        return
-    lines = text.splitlines(keepends=True)
-    in_block = False
-    changed = False
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            in_block = stripped == "[llm.ollama]"
-            continue
-        if in_block:
-            match = re.match(r'(\s*model\s*=\s*)"[^"]*"(.*)$', line)
-            if match:
-                lines[i] = f'{match.group(1)}""{match.group(2)}\n'
-                changed = True
-                break
-    if changed:
-        config_path.write_text("".join(lines), encoding="utf-8")
-        print("[OpenBiliClaw] 本地 Ollama 默认仅用于 embedding(已清空预设 chat 模型)")
-
-
-def _packaged_ollama_preflight() -> None:
-    """Ensure a loopback ``ollama serve`` is up when chat/embedding needs it.
-
-    Mirrors ``cli._preflight_loopback_ollama`` (loopback-only guard included) via
-    the shared supervisor, because the packaged entry calls ``create_app()``
-    directly and never goes through ``openbiliclaw start`` where the preflight
-    normally runs. Failures only warn — they must never block the server.
-    """
-    try:
-        from openbiliclaw.config import load_config
-        from openbiliclaw.runtime.ollama_supervisor import (
-            _is_default_ollama_endpoint,
-            _ollama_is_running,
-            _ollama_start_serve_background,
-            effective_ollama_endpoint,
-            is_loopback,
-            ollama_required,
-        )
-
-        cfg = load_config()
-        if not ollama_required(cfg) or not cfg.autostart.manage_ollama:
-            return
-        endpoint = effective_ollama_endpoint(cfg)
-        if not is_loopback(endpoint) or _ollama_is_running(host=endpoint):
-            return
-        if not _is_default_ollama_endpoint(endpoint):
-            return
-        if not _ollama_start_serve_background():
-            print("[OpenBiliClaw] Ollama 未能自动拉起；embedding 可能降级。")
-    except Exception as exc:  # noqa: BLE001 — preflight must never crash startup
-        print(f"[OpenBiliClaw] Ollama preflight 跳过: {exc}")
-
-
-def _ensure_embedding_model_async() -> None:
-    """Pull the local embedding model in the background if it's missing.
-
-    Honours the "bundle the runtime, fetch the 1.1GB weights once" approach: a
-    fresh machine reaches embedding-ready on its own without the user running
-    ``setup-embedding``. Runs in a daemon thread so the 1.1GB download never
-    blocks the API; reuses the battle-tested ``cli`` pull helpers (already in the
-    bundle). No-op when embedding isn't Ollama or the model is already present.
-    """
-
-    try:
-        from openbiliclaw.config import load_config
-
-        cfg = load_config()
-        emb = cfg.llm.embedding
-        if str(emb.provider).strip().lower() != "ollama":
-            return
-        model = str(emb.model).strip() or "bge-m3"
-        base_url = (
-            str(emb.base_url).strip()
-            or str(cfg.llm.ollama.base_url).strip()
-            or "http://localhost:11434/v1"
-        )
-        from openbiliclaw.runtime import embedding_progress
-
-        # Publish the in-flight state before starting the worker. The API can
-        # bind and serve its first /api/init-status request before a newly
-        # created thread gets scheduled; without this early mark the GUI sees
-        # one idle snapshot and stops polling, so the user must click the init
-        # CTA to discover the download.
-        embedding_progress.mark_pull_running(model)
-
-        def _worker() -> None:
-            try:
-                from openbiliclaw.cli import _ollama_has_model
-                from openbiliclaw.llm.ollama_diagnostics import (
-                    native_root,
-                    pull_ollama_model,
-                )
-
-                if _ollama_has_model(model, native_root(base_url)):
-                    embedding_progress.mark_pull_done(True, "")
-                    return
-                print(f"[OpenBiliClaw] 后台拉取本地 embedding 模型 {model}(约 1.1GB,仅首次)…")
-                ok = False
-                error = ""
-                try:
-                    ok, error = asyncio.run(
-                        pull_ollama_model(
-                            base_url,
-                            model,
-                            on_progress=embedding_progress.report_pull,
-                        )
-                    )
-                except Exception as exc:  # noqa: BLE001 — background best-effort only
-                    error = f"{type(exc).__name__}: {exc}"
-                finally:
-                    embedding_progress.mark_pull_done(ok, error)
-                if ok:
-                    print(f"[OpenBiliClaw] 本地 embedding 模型 {model} 就绪")
-                elif error:
-                    print(f"[OpenBiliClaw] 本地 embedding 模型 {model} 拉取失败: {error}")
-            except Exception as exc:  # noqa: BLE001 — background best-effort only
-                error = f"{type(exc).__name__}: {exc}"
-                embedding_progress.mark_pull_done(False, error)
-                print(f"[OpenBiliClaw] 模型自动拉取跳过: {exc}")
-
-        threading.Thread(target=_worker, name="obc-embed-pull", daemon=True).start()
-    except Exception as exc:  # noqa: BLE001 — startup must remain best-effort
-        print(f"[OpenBiliClaw] 模型自动拉取跳过: {exc}")
-
-
-# Dedicated port for the ``with-embedding`` variant's PRIVATE Ollama daemon, so
-# the baked model is served from our own ASCII/user-writable dir independently
-# of any external/official Ollama the user runs on the default 11434.
-_PRIVATE_OLLAMA_PORT = 11435
-
-
-def _set_embedding_field(config_path: Path, field: str, value: str) -> None:
-    """Set a single ``[llm.embedding].<field>`` line, editing only that line so
-    the comment-heavy template survives (mirrors ``_enable_ollama_embedding_default``)."""
-    try:
-        lines = config_path.read_text(encoding="utf-8").splitlines(keepends=True)
-    except OSError:
-        return
-    in_block = False
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            in_block = stripped == "[llm.embedding]"
-            continue
-        if in_block and re.match(rf"\s*{re.escape(field)}\s*=", line):
-            indent = line[: len(line) - len(line.lstrip())]
-            lines[i] = f'{indent}{field} = "{value}"\n'
-            config_path.write_text("".join(lines), encoding="utf-8")
-            return
-
-
-def _seed_bundled_embedding_model(bundled_resources: Path, config_path: Path) -> bool:
-    """``with-embedding`` variant: seed the baked bge-m3 into an ASCII,
-    user-writable dir and serve it from a PRIVATE Ollama on a dedicated port,
-    BEFORE any other Ollama start.
-
-    Returns True when the private embedding daemon is up (the caller then skips
-    the default preflight + network pull). Returns False — a no-op — for the
-    lean variant (no seed dir), when the user picked a remote embedding
-    provider, or when anything can't complete (=> fall back to the normal
-    preflight + online pull). Never crashes startup.
-    """
-    seed_dir = bundled_resources / "bge-m3-seed"
-    if not seed_dir.is_dir():
-        return False  # lean variant — nothing bundled
-    try:
-        from openbiliclaw.config import load_config
-        from openbiliclaw.runtime.embedding_seed import (
-            effective_embedding_models_dir,
-            seed_embedding_model,
-        )
-        from openbiliclaw.runtime.ollama_supervisor import start_managed_ollama_at
-
-        cfg = load_config()
-        provider = str(cfg.llm.embedding.provider).strip().lower()
-        if provider not in ("", "ollama"):
-            return False  # user chose a remote embedding provider — respect it
-
-        target = effective_embedding_models_dir(
-            user_ollama_models=os.environ.get("OLLAMA_MODELS"),
-            platform=sys.platform,
-            home=Path.home(),
-            programdata=os.environ.get("PROGRAMDATA"),
-        )
-        if target is None:
-            return False
-
-        result = seed_embedding_model(seed_dir, target)
-        if not result.ok:
-            print(f"[OpenBiliClaw] 内置向量模型播种失败,改为在线拉取: {result.detail}")
-            return False
-
-        host = f"127.0.0.1:{_PRIVATE_OLLAMA_PORT}"
-        base_url = f"http://{host}/v1"
-        # Provider + base_url + model all point at the private daemon, which
-        # only serves the bundled bge-m3. Forcing the model guards against a
-        # stale/other embedding model name 404-ing against the private daemon.
-        _enable_ollama_embedding_default(config_path)
-        _set_embedding_field(config_path, "base_url", base_url)
-        _set_embedding_field(config_path, "model", "bge-m3")
-
-        if not start_managed_ollama_at(str(target), host):
-            print("[OpenBiliClaw] 私有 Ollama 未能启动,内置向量模型交回默认流程。")
-            return False
-        print(f"[OpenBiliClaw] 内置向量模型 bge-m3 已就绪(私有 Ollama :{_PRIVATE_OLLAMA_PORT})")
-        return True
-    except Exception as exc:  # noqa: BLE001 — must never crash startup
-        print(f"[OpenBiliClaw] 内置向量模型初始化跳过: {exc}")
-        return False
 
 
 def _redirect_output_to_logfile(project_root: Path) -> Path | None:
@@ -913,12 +625,6 @@ def _run_server_in_tray(
         icon.run()  # blocks on the main thread until _quit calls icon.stop()
     finally:
         server.should_exit = True
-        # Stop the ollama daemon we started so it (and its model runner) don't
-        # linger as orphans after quit; a user-managed ollama is left untouched.
-        with suppress(Exception):
-            from openbiliclaw.runtime.ollama_supervisor import stop_managed_ollama
-
-            stop_managed_ollama()
         with suppress(Exception):
             server_thread.join(timeout=5)
 
@@ -1166,21 +872,9 @@ def main() -> None:
     (project_root / "data").mkdir(exist_ok=True)
     (project_root / "logs").mkdir(exist_ok=True)
 
-    # Make a bundled ollama (if this build shipped one) discoverable before any
-    # config is read, so the existing supervisor finds it via shutil.which.
-    has_bundled_ollama = _inject_bundled_ollama_on_path(bundled_resources)
-
-    # Seed a default config.toml if the user hasn't created one yet. On a fresh
-    # packaged install with a bundled ollama, default embedding to it so local
-    # semantic features work out of the box.
+    # Seed a default config.toml if the user hasn't created one yet.
     seeded = _seed_default_config(project_root, bundled_resources)
-    if seeded and has_bundled_ollama:
-        _enable_ollama_embedding_default(project_root / "config.toml")
-        _default_ollama_to_embedding_only(project_root / "config.toml")
     repair_result = _repair_unloadable_config(project_root, bundled_resources)
-    if repair_result.regenerated_default and has_bundled_ollama:
-        _enable_ollama_embedding_default(project_root / "config.toml")
-        _default_ollama_to_embedding_only(project_root / "config.toml")
 
     # The packaged app bypasses `openbiliclaw start`, so set up the same
     # structured, rotated, UTF-8 `openbiliclaw.log` the CLI gets — otherwise the
@@ -1304,19 +998,6 @@ def main() -> None:
         default_port = int(getattr(runtime_config.api, "port", 8420) or 8420)
         host = os.environ.get("OPENBILICLAW_HOST", "").strip() or default_host
         port = int(os.environ.get("OPENBILICLAW_PORT", "").strip() or str(default_port))
-
-    # with-embedding variant: seed the baked bge-m3 and bring up a private
-    # Ollama for it BEFORE any other Ollama start. On success the default
-    # preflight + online pull are superseded (embedding is already ready).
-    if not _seed_bundled_embedding_model(bundled_resources, project_root / "config.toml"):
-        # Packaged entry bypasses ``openbiliclaw start``, so run the same loopback
-        # Ollama preflight here to bring up the (bundled) daemon when needed.
-        _packaged_ollama_preflight()
-
-        # With a bundled ollama, fetch the embedding weights once in the background
-        # so a fresh install becomes embedding-ready without manual setup.
-        if has_bundled_ollama:
-            _ensure_embedding_model_async()
 
     print(f"[OpenBiliClaw] 数据目录: {project_root}")
     print(f"[OpenBiliClaw] 正在启动后端服务 http://{host}:{port} ...")

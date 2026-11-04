@@ -40,9 +40,9 @@ def test_sensenova_preset_matches_validated_endpoint() -> None:
     preset = presets["sensenova"]
     assert preset["base_url"] == "https://token.sensenova.cn/v1"
     assert preset["default_model"] == "deepseek-v4-flash"
-    # token 推理端点未验证 /v1/embeddings —— 必须如实标注，引导独立 Ollama bge-m3。
+    # token 推理端点未验证 /v1/embeddings —— 必须如实标注，引导用户另配云端 embedding。
     assert preset["supports_embedding"] == "false"
-    assert "bge-m3" in preset["embedding_alt"]
+    assert "embedding" in preset["embedding_alt"]
     # 免费额度是该 preset 的存在理由（issue #193），文案必须提及。
     assert "免费" in preset["description"]
 

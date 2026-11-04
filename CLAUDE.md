@@ -68,7 +68,7 @@ The system follows a pipeline: **Behavioral Data -> Soul Engine -> Discovery -> 
 
 ### Supporting Layers
 
-- **LLM Adapter** (`llm/`) - Multi-provider abstraction. All providers implement `LLMProvider` protocol from `base.py`. `registry.py` handles provider instantiation by name. Supported: OpenAI, Claude, Gemini, DeepSeek, Ollama (local), OpenRouter.
+- **LLM Adapter** (`llm/`) - Multi-provider abstraction. All providers implement `LLMProvider` protocol from `base.py`. `registry.py` handles provider instantiation by name. Supported: OpenAI, Claude, Gemini, DeepSeek, OpenRouter, OrcaRouter, Requesty, API Route, Cheaper Inference, and any OpenAI-compatible gateway (self-hosted vLLM / LM Studio / OneAPI).
 
 - **Bilibili Integration** (`bilibili/api.py`) - `BilibiliAPIClient` wraps the bilibili-api-python library. Authentication via cookie or QR code (`auth.py`). Browser automation via agent-browser (`browser.py`).
 
@@ -178,7 +178,7 @@ These history-backed guardrails complement, rather than replace, the
 [LLM Prompt-Cache Convention](#llm-prompt-cache-convention-v0328) and
 [Documentation Requirements](#documentation-requirements).
 
-1. **Set `trust_env=False` for Bilibili, Douyin, XHS, Zhihu, CN-CDN, Ollama, and localhost HTTP clients; make proxy use an explicit opt-in.**
+1. **Set `trust_env=False` for Bilibili, Douyin, XHS, Zhihu, CN-CDN, and localhost HTTP clients; make proxy use an explicit opt-in.**
    Inherited proxies broke Bilibili requests and hid useful login diagnostics (`df626f3f`).
 
 2. **Never cache empty or failed provider results; validate every value before a cache write.**

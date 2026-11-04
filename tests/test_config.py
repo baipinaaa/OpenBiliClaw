@@ -58,10 +58,6 @@ api_key = ""
 model = "deepseek-chat"
 base_url = "https://api.deepseek.com"
 
-[llm.ollama]
-model = "llama3"
-base_url = "http://localhost:11434"
-
 [bilibili]
 auth_method = "cookie"
 cookie = ""
@@ -207,7 +203,6 @@ class TestConfigDefaults:
         assert config.scheduler.pool_target_count == 300
         assert isinstance(config.autostart, AutostartConfig)
         assert config.autostart.enabled is False
-        assert config.autostart.manage_ollama is True
         assert isinstance(config.tailnet, TailnetConfig)
         assert config.tailnet.enabled is False
         assert config.tailnet.hostname == "openbiliclaw-host"
@@ -572,7 +567,6 @@ class TestConfigDefaults:
         assert config.language == "zh"
         assert config.llm.default_provider == "deepseek"
         assert config.autostart.enabled is False
-        assert config.autostart.manage_ollama is True
         assert config.tailnet.enabled is False
         assert config.tailnet.hostname == "openbiliclaw-host"
 
@@ -584,7 +578,6 @@ class TestConfigDefaults:
             """
 [autostart]
 enabled = true
-manage_ollama = true
 """.strip(),
             encoding="utf-8",
         )
@@ -593,7 +586,6 @@ manage_ollama = true
         config = load_config(config_path)
 
         assert config.autostart.enabled is False
-        assert config.autostart.manage_ollama is True
 
     def test_build_from_partial_dict(self) -> None:
         raw = {
@@ -960,19 +952,16 @@ manage_ollama = true
         rendered = _render_config_toml(Config())
 
         assert "[autostart]" in rendered
-        assert "manage_ollama = true" in rendered
 
     def test_save_config_round_trips_authoritative_autostart(self, tmp_path: Path) -> None:
         cfg = Config()
         cfg.autostart.enabled = True
-        cfg.autostart.manage_ollama = False
         target = tmp_path / "config.toml"
 
         save_config(cfg, target, autostart_authoritative=True)
         loaded = load_config(target)
 
         assert loaded.autostart.enabled is True
-        assert loaded.autostart.manage_ollama is False
 
     def test_save_config_preserves_on_disk_autostart_enabled_by_default(
         self, tmp_path: Path
@@ -982,19 +971,16 @@ manage_ollama = true
             """
 [autostart]
 enabled = true
-manage_ollama = false
 """.strip(),
             encoding="utf-8",
         )
         stale_cfg = Config()
         stale_cfg.autostart.enabled = False
-        stale_cfg.autostart.manage_ollama = True
 
         save_config(stale_cfg, target)
         loaded = load_config(target)
 
         assert loaded.autostart.enabled is True
-        assert loaded.autostart.manage_ollama is True
 
     def test_save_config_authoritative_autostart_enabled_overrides_disk(
         self, tmp_path: Path
@@ -1004,19 +990,16 @@ manage_ollama = false
             """
 [autostart]
 enabled = false
-manage_ollama = false
 """.strip(),
             encoding="utf-8",
         )
         cfg = Config()
         cfg.autostart.enabled = True
-        cfg.autostart.manage_ollama = True
 
         save_config(cfg, target, autostart_authoritative=True)
         loaded = load_config(target)
 
         assert loaded.autostart.enabled is True
-        assert loaded.autostart.manage_ollama is True
 
     def test_load_config_missing_file(self) -> None:
         """Should return defaults when no config file exists."""
@@ -1101,11 +1084,8 @@ language = "en"
 data_dir = "runtime-data"
 
 [llm]
-default_provider = "ollama"
+default_provider = "deepseek"
 
-[llm.ollama]
-model = "llama3"
-base_url = "http://localhost:11434"
 """.strip(),
         encoding="utf-8",
     )
@@ -1127,17 +1107,6 @@ def test_validate_runtime_config_requires_api_key_for_default_provider() -> None
 
     with pytest.raises(ConfigError, match="llm.openai.api_key"):
         validate_runtime_config(config)
-
-
-def test_validate_runtime_config_allows_ollama_without_api_key() -> None:
-    config = Config(
-        llm=LLMConfig(
-            default_provider="ollama",
-            ollama=LLMProviderConfig(model="llama3", base_url="http://localhost:11434"),
-        )
-    )
-
-    validate_runtime_config(config)
 
 
 def test_build_config_supports_openrouter_provider() -> None:
@@ -1612,8 +1581,8 @@ def test_validate_runtime_config_rejects_invalid_auth_method() -> None:
 def test_validate_runtime_config_rejects_pool_target_count_above_cap() -> None:
     config = Config(
         llm=LLMConfig(
-            default_provider="ollama",
-            ollama=LLMProviderConfig(model="llama3", base_url="http://localhost:11434"),
+            default_provider="openai",
+            openai=LLMProviderConfig(api_key="test-key"),
         ),
         scheduler=SchedulerConfig(
             enabled=True,
@@ -1642,8 +1611,8 @@ def test_validate_runtime_config_rejects_eval_batch_coalescing_out_of_range(
 ) -> None:
     config = Config(
         llm=LLMConfig(
-            default_provider="ollama",
-            ollama=LLMProviderConfig(model="llama3", base_url="http://localhost:11434"),
+            default_provider="openai",
+            openai=LLMProviderConfig(api_key="test-key"),
         )
     )
     setattr(config.scheduler, field, value)
@@ -2623,7 +2592,7 @@ def test_save_config_round_trips_runtime_changes(tmp_path: Path) -> None:
     config.llm.gemini.api_key = "gemini-test-key"
     config.llm.gemini.model = "gemini-2.5-flash"
     config.llm.embedding.fallback_enabled = True
-    config.llm.embedding.fallback_provider = "ollama"
+    config.llm.embedding.fallback_provider = "gemini"
 
     save_config(config, config_path)
     loaded = load_config(config_path)
@@ -2636,7 +2605,7 @@ def test_save_config_round_trips_runtime_changes(tmp_path: Path) -> None:
     assert loaded.llm.gemini.api_key == "gemini-test-key"
     assert loaded.llm.gemini.model == "gemini-2.5-flash"
     assert loaded.llm.embedding.fallback_enabled is True
-    assert loaded.llm.embedding.fallback_provider == "ollama"
+    assert loaded.llm.embedding.fallback_provider == "gemini"
 
 
 def test_save_config_round_trips_empty_deepseek_reasoning_effort(tmp_path: Path) -> None:
@@ -2737,14 +2706,10 @@ def test_load_config_accepts_legacy_embedding_section_without_api_key(
     config_path.write_text(
         """
 [llm]
-default_provider = "ollama"
-
-[llm.ollama]
-model = "llama3"
-base_url = "http://localhost:11434/v1"
+default_provider = "deepseek"
 
 [llm.embedding]
-provider = "ollama"
+provider = "gemini"
 model = ""
 similarity_threshold = 0.88
 """.strip()
@@ -2752,7 +2717,7 @@ similarity_threshold = 0.88
 
     loaded = load_config(config_path)
 
-    assert loaded.llm.embedding.provider == "ollama"
+    assert loaded.llm.embedding.provider == "gemini"
     assert loaded.llm.embedding.api_key == ""
     assert loaded.llm.embedding.base_url == ""
     assert loaded.llm.embedding.output_dimensionality == 1024
@@ -3697,10 +3662,10 @@ eval_prefilter_mode = "  Shadow  "
 
     def test_validate_runtime_config_rejects_invalid_eval_prefilter_mode(self) -> None:
         config = Config()
-        config.llm.default_provider = "ollama"
-        # Main's stricter validation requires an explicit ollama chat model;
-        # satisfy it so validation reaches the prefilter-mode check.
-        config.llm.ollama.model = "qwen2.5:7b"
+        config.llm.default_provider = "openai"
+        # Validation must pass the credential check so it reaches the
+        # prefilter-mode check.
+        config.llm.openai.api_key = "test-key"
         config.discovery.eval_prefilter_mode = "aggressive"
 
         with pytest.raises(ConfigError, match="discovery\\.eval_prefilter_mode"):
@@ -3726,8 +3691,8 @@ eval_prefilter_mode = "  Shadow  "
 
     def test_validate_runtime_config_rejects_invalid_eval_scorer(self) -> None:
         config = Config()
-        config.llm.default_provider = "ollama"
-        config.llm.ollama.model = "qwen2.5:7b"
+        config.llm.default_provider = "openai"
+        config.llm.openai.api_key = "test-key"
         config.discovery.eval_scorer = "unsafe"
 
         with pytest.raises(ConfigError, match="discovery\\.eval_scorer"):
@@ -3880,7 +3845,7 @@ def test_collect_issues_blocks_unknown_embedding_provider() -> None:
     assert "llm.embedding.fallback_provider" in fields
 
     # Legit values (any case) and empty stay clean.
-    config.llm.embedding.provider = "Ollama"
+    config.llm.embedding.provider = "Gemini"
     config.llm.embedding.fallback_provider = ""
     issues = _collect_config_issues(config)
     assert not any(issue.field.startswith("llm.embedding.") for issue in issues)
@@ -3963,39 +3928,6 @@ def test_collect_issues_blocks_openai_compatible_llm_fallback_without_base_url()
     assert issues
     assert all(issue.severity == "blocking" for issue in issues)
     assert "base_url" in issues[0].message
-
-
-def test_collect_issues_blocks_ollama_llm_fallback_without_model() -> None:
-    """An Ollama server URL cannot identify which local chat model to use."""
-    config = Config()
-    config.llm.default_provider = "openai"
-    config.llm.openai.api_key = "sk-main"
-    config.llm.fallback_provider = "ollama"
-
-    issues = _llm_fallback_issues(config)
-
-    assert issues
-    assert all(issue.severity == "blocking" for issue in issues)
-
-    config.llm.ollama.base_url = "http://localhost:11434/v1"
-    assert _llm_fallback_issues(config)
-
-    config.llm.ollama.model = "llama3"
-    assert _llm_fallback_issues(config) == []
-
-
-def test_collect_issues_blocks_default_ollama_without_model() -> None:
-    from openbiliclaw.config import _collect_config_issues
-
-    config = Config()
-    config.llm.default_provider = "ollama"
-    config.llm.ollama.base_url = "http://localhost:11434/v1"
-
-    issues = _collect_config_issues(config)
-
-    assert any(
-        issue.field == "llm.ollama.model" and issue.severity == "blocking" for issue in issues
-    )
 
 
 def test_collect_issues_allows_gemini_llm_fallback_with_env_key(
@@ -4180,7 +4112,7 @@ class TestNetworkProxyConfig:
     """`[network].proxy` — the overseas-outbound proxy for LLM/YouTube/updater.
 
     Spec: docs/plans/2026-07-11-network-proxy-config-spec.md. CN-direct clients
-    (bilibili/douyin/ollama) never consume this — that isolation is guarded in
+    (bilibili/douyin) never consume this — that isolation is guarded in
     tests/test_network_proxy_isolation.py.
     """
 
@@ -4427,10 +4359,9 @@ discovery_limit = 17
         config_path.write_text(
             """
 [llm]
-default_provider = "ollama"
+default_provider = "deepseek"
 
-[llm.ollama]
-model = "llama3"
+[llm.deepseek]
 future_provider_field = "v9"
 
 [storage]
@@ -4443,11 +4374,10 @@ unknown_logging_key = "loud"
         )
 
         with caplog.at_level("WARNING"):
-            config = load_config(config_path)
+            load_config(config_path)
 
-        assert config.llm.ollama.model == "llama3"
         for section, key in (
-            ("llm.ollama", "future_provider_field"),
+            ("llm.deepseek", "future_provider_field"),
             ("storage", "unknown_storage_key"),
             ("logging", "unknown_logging_key"),
         ):

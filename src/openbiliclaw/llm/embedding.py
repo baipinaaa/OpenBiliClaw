@@ -1174,16 +1174,13 @@ class EmbeddingService:
                 )
             except Exception:
                 logger.debug("Embedding L2 runtime preparation failed", exc_info=True)
-        # Cap concurrent provider calls. Local CPU-bound providers (Ollama
-        # bge-m3 on a single GGUF runner) collapse under unbounded
-        # asyncio.gather fan-out from delight scoring + topic supergroup
-        # merge + speculator. v0.3.31 caught a real cascade where the
-        # daemon spawned 14+ concurrent embed calls within 1 second after
-        # the proxy fix landed; Ollama queued them serially, exceeded the
-        # 60s read timeout, and every call returned ``[]``. Even cloud
-        # providers benefit from a small ceiling to amortize TLS handshake
-        # cost. Default 2 keeps single-CPU bge-m3 healthy while still
-        # using both cores for inference + tokenization.
+        # Cap concurrent provider calls. Unbounded asyncio.gather fan-out
+        # from delight scoring + topic supergroup merge + speculator can
+        # overwhelm any single provider. v0.3.31 caught a real cascade
+        # where the daemon spawned 14+ concurrent embed calls within 1
+        # second; the provider queued them serially, exceeded the 60s read
+        # timeout, and every call returned ``[]``. Cloud providers also
+        # benefit from a small ceiling to amortize TLS handshake cost.
         self._provider_semaphore = asyncio.Semaphore(max_concurrent_provider_calls)
         self.multimodal_enabled = bool(multimodal_enabled)
         self.supports_image_embedding = self._detect_image_embedding_support()
@@ -1512,8 +1509,8 @@ class EmbeddingService:
         Returns ``True`` only when the provider currently returns a
         non-empty vector. The L1/L2 cache is bypassed on purpose: a
         previously-cached success must never mask a provider that has
-        since gone down (Ollama stopped, ``bge-m3`` never pulled so every
-        call 404s, remote key revoked, …). ``/api/health`` calls this
+        since gone down (model 404s, remote key revoked, …). The
+        ``/api/health`` endpoint calls this
         behind its own short TTL + single-flight, so the extra provider
         round-trip happens at most a couple of times a minute.
         """

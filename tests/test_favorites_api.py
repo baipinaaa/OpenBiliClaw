@@ -25,8 +25,8 @@ def favorites_client(
     monkeypatch.setenv("OPENBILICLAW_PROJECT_ROOT", str(project_root))
     cfg = Config()
     cfg.scheduler.enabled = False
-    cfg.llm.default_provider = "ollama"
-    cfg.llm.ollama.model = "llama3"
+    cfg.llm.default_provider = "deepseek"
+    cfg.llm.deepseek.api_key = "test-key"
     save_config(cfg, project_root / "config.toml")
 
     db = Database(tmp_path / "favorites.db")

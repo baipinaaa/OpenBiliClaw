@@ -13,9 +13,6 @@ import {
   describeInitReason,
   describeInitStatusReason,
   describeInitStartError,
-  embeddingPullProgressView,
-  embeddingRepairAction,
-  embeddingRepairStartAccepted,
   getEnabledPlatforms,
   hardPrereqsSatisfied,
   initProgressView,
@@ -25,7 +22,6 @@ import {
   INIT_SOURCE_OPTIONS,
   initStartButtonState,
   isInitTerminal,
-  shouldAttachEmbeddingPullProgress,
   shouldAttachRunningInitProgress,
 } from "../popup/popup-init-control.js";
 
@@ -66,100 +62,6 @@ test("checklist marks hard prereqs and surfaces hints when missing", () => {
   assert.ok(bili?.hint.length > 0);
   assert.equal(llm?.hard, true);
   assert.equal(llm?.ok, false);
-});
-
-test("embeddingPullProgressView reports live bge-m3 pull percent + label", () => {
-  const idle = embeddingPullProgressView({ embedding_ready: true });
-  assert.equal(idle.active, false);
-  assert.equal(idle.pct, 0);
-
-  const pulling = embeddingPullProgressView({
-    embedding_repair_running: true,
-    embedding_repair_completed: 50,
-    embedding_repair_total: 200,
-    embedding_pull_status: "downloading",
-  });
-  assert.equal(pulling.active, true);
-  assert.equal(pulling.pct, 25);
-  assert.ok(pulling.label.includes("downloading"));
-
-  const starting = embeddingPullProgressView({
-    embedding_repair_running: true,
-    ollama_phase: "starting",
-  });
-  assert.equal(starting.pct, 1); // no totals yet → 1% floor while active
-  assert.ok(starting.label.includes("Ollama"));
-});
-
-test("embeddingRepairAction picks the right button per embedding_check", () => {
-  assert.deepEqual(embeddingRepairAction({ embedding_ready: true }), {
-    repairable: false,
-    label: "",
-  });
-  assert.equal(
-    embeddingRepairAction({ embedding_check: "model_missing" }).label,
-    "自动下载向量模型",
-  );
-  assert.equal(
-    embeddingRepairAction({ embedding_check: "model_path_encoding" }).label,
-    "迁移模型目录并修复",
-  );
-  assert.equal(embeddingRepairAction({ embedding_check: "disk_full" }).label, "重新检测");
-  assert.equal(embeddingRepairAction({ embedding_check: "not_running" }).repairable, false);
-  assert.equal(embeddingRepairStartAccepted({ status: 202 }), true);
-  assert.equal(
-    embeddingRepairStartAccepted({ status: 409, error: "already_running" }),
-    true,
-  );
-  assert.equal(embeddingRepairStartAccepted({ status: 0 }), false);
-  assert.equal(embeddingRepairStartAccepted({ status: 404 }), false);
-  assert.equal(embeddingRepairStartAccepted({ status: 500 }), false);
-});
-
-test("embedding checklist row carries pull progress + repair action", () => {
-  const rows = buildInitChecklist(
-    statusWith({
-      prerequisites: {
-        embedding_ready: false,
-        embedding_required: true,
-        embedding_check: "model_missing",
-        embedding_repair_running: true,
-        embedding_repair_completed: 10,
-        embedding_repair_total: 100,
-      },
-    }),
-  );
-  const emb = rows.find((r) => r.key === "embedding");
-  assert.equal(emb?.pull.active, true);
-  assert.equal(emb?.pull.pct, 10);
-  assert.equal(emb?.repair.repairable, true);
-});
-
-test("boot re-attach recognizes an embedding pull before guided init starts", () => {
-  const pulling = statusWith({
-    prerequisites: {
-      embedding_required: true,
-      embedding_ready: false,
-      embedding_check: "repairing",
-      embedding_repair_running: true,
-      embedding_repair_completed: 12,
-      embedding_repair_total: 100,
-    },
-  });
-  assert.equal(shouldAttachEmbeddingPullProgress(pulling), true);
-  assert.equal(
-    shouldAttachEmbeddingPullProgress(
-      statusWith({
-        prerequisites: {
-          embedding_required: true,
-          embedding_ready: false,
-          embedding_check: "model_missing",
-        },
-      }),
-    ),
-    false,
-  );
-  assert.equal(shouldAttachEmbeddingPullProgress(statusWith()), false);
 });
 
 test("hardPrereqsSatisfied is false until both bilibili and llm are ready", () => {
@@ -644,16 +546,16 @@ test("embedding hint prefers backend detail, falls back to check code, then gene
 
   // Backend-provided detail wins verbatim (v0.3.155+ embedding_detail).
   const withDetail = rows({
-    embedding_check: "model_broken",
-    embedding_detail: "bge-m3 已安装但调用返回 HTTP 500",
+    embedding_check: "provider_error",
+    embedding_detail: "Gemini embedding 返回 HTTP 500",
   });
-  assert.equal(withDetail?.hint, "bge-m3 已安装但调用返回 HTTP 500");
+  assert.equal(withDetail?.hint, "Gemini embedding 返回 HTTP 500");
 
   // No detail → per-code fallback copy.
-  const byCode = rows({ embedding_check: "model_missing", embedding_detail: "" });
-  assert.ok(byCode?.hint.includes("ollama pull bge-m3"));
-  const notRunning = rows({ embedding_check: "not_running", embedding_detail: "" });
-  assert.ok(notRunning?.hint.includes("ollama serve"));
+  const byCode = rows({ embedding_check: "misconfigured", embedding_detail: "" });
+  assert.ok(byCode?.hint.includes("配置无效"));
+  const providerError = rows({ embedding_check: "provider_error", embedding_detail: "" });
+  assert.ok(providerError?.hint.includes("Key"));
 
   // Older backend (no embedding_check at all) → legacy generic copy.
   const legacy = rows({});

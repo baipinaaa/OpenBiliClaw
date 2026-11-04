@@ -119,7 +119,7 @@ async def run_guided_init(
 |------|------|---------|-------------|
 | B站 已登录 | **硬** | **真实校验 + TTL 缓存**:有 cookie 时调 `AuthManager.validate_cookie`(`bilibili/auth.py:95`)确认有效,**结果缓存**(成功 60s / 失败 10s / `checking` 态)——`validate_cookie` 走 ~30s 超时且可能被限频,**绝不每次 poll 都打 B站** | 装浏览器扩展自动同步 / 去设置贴 cookie |
 | LLM 已配好 | **硬** | **chat 可用性探测 + 缓存**:registry 能构建只是必要非充分(qwen2.5 那种 call 时才 404,刚踩过)。照 `embedding_ready` 的 live-cached probe 模式做一个带超时 + single-flight 的 chat 探测;字段名用 `llm_ready`(真探测)而非「registry 构建成功」 | 去 `/setup` 或设置页选 provider + 填 key |
-| Embedding 就绪 | 软 | 既有 `embedding_ready` 缓存探测 | 打包版默认随包 ollama,一般已就绪 |
+| Embedding 就绪 | 软 | 既有 `embedding_ready` 缓存探测 | 默认不启用；配置云端 provider 后由真实向量请求判定 |
 | 想接入的平台已选择 | 软 | `POST /api/init` 的 `sources` | 勾选即作为本轮显式 opt-in，并 best-effort 写回 `config.sources.*.enabled=true` |
 
 硬前置都满足且未在跑且本机 → `can_start=true`,按钮可点;否则置灰 + 按 reason 文案解释。

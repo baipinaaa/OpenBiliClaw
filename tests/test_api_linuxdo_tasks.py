@@ -53,9 +53,8 @@ def linuxdo_api(
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[TestClient, Database, MemoryManager, _EventHub, Config]:
     cfg = Config(data_dir=str(tmp_path / "data"))
-    cfg.llm.default_provider = "ollama"
-    cfg.llm.ollama.model = "llama3"
-    cfg.llm.ollama.base_url = "http://localhost:11434"
+    cfg.llm.default_provider = "deepseek"
+    cfg.llm.deepseek.api_key = "test-key"
     cfg.sources.linuxdo.enabled = True
     monkeypatch.setattr("openbiliclaw.config.load_config", lambda *_a, **_kw: cfg)
     monkeypatch.setattr("openbiliclaw.config.save_config", lambda *_a, **_kw: None)

@@ -68,13 +68,13 @@ test("initAutostartControl toggles immediately and reloads", async () => {
   const fetchImpl = async (url: string, options: any = {}) => {
     if (String(url).endsWith("/autostart-status")) {
       return { ok: true, status: 200, async json() {
-        return { enabled, can_manage: true, registered: enabled, manage_ollama: true };
+        return { enabled, can_manage: true, registered: enabled };
       } };
     }
     posts.push(JSON.parse(options.body));
     enabled = true;
     return { ok: true, status: 200, async json() {
-      return { enabled: true, can_manage: true, registered: true, manage_ollama: true };
+      return { enabled: true, can_manage: true, registered: true };
     } };
   };
   const ctl = initAutostartControl({ checkbox, hint }, { getBaseUrl, fetchImpl });

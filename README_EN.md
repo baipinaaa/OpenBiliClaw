@@ -64,7 +64,7 @@ A local-first AI discovery agent that learns your taste across Bilibili, Xiaohon
 Four steps for most users. Firefox, Docker, scripted, and manual setup paths all live in [Setup Details](#setup-details).
 
 1. **Install the extension** — one-click from the [Chrome Web Store](https://chromewebstore.google.com/detail/cdfjfkdjjhdaccbldipkjhpibnfbiamg) (auto-updates), or download the zip from [Latest Release](https://github.com/whiteguo233/OpenBiliClaw/releases/latest) for the newest build (the store listing can lag a few days behind).
-2. **Install the backend** — grab the desktop installer from the same [Latest Release](https://github.com/whiteguo233/OpenBiliClaw/releases/latest) (macOS `.dmg` / Windows `.exe`, works out of the box, lives in the menu bar / tray). Each platform ships two variants: the **lean** installer (default; downloads the bge-m3 embedding model on first launch) and the **`-with-embedding`** installer (bge-m3 baked in, ~1.1GB, offline-ready) — pick with-embedding for a poor / offline network, lean otherwise. **Gitee source is synced through v0.3.233. Get the latest installers from the [GitHub Release](https://github.com/whiteguo233/OpenBiliClaw/releases/tag/openbiliclaw-v0.3.233); 123 Cloud still holds v0.3.213 files.** Or, to customize or edit the source, paste this into Claude Code / Codex CLI / Cursor or another AI coding agent:
+2. **Install the backend** — grab the desktop installer from the same [Latest Release](https://github.com/whiteguo233/OpenBiliClaw/releases/latest) (macOS `.dmg` / Windows `.exe`, works out of the box, lives in the menu bar / tray). Installers ship no local inference runtime — chat and embedding both call the cloud API you configure. **Gitee source is synced through v0.3.233. Get the latest installers from the [GitHub Release](https://github.com/whiteguo233/OpenBiliClaw/releases/tag/openbiliclaw-v0.3.233); 123 Cloud still holds v0.3.213 files.** Or, to customize or edit the source, paste this into Claude Code / Codex CLI / Cursor or another AI coding agent:
 
    ```text
    Please follow https://raw.githubusercontent.com/whiteguo233/OpenBiliClaw/main/docs/agent-install.md to deploy the OpenBiliClaw backend for me (use Bash `curl` to fetch the document, NOT WebFetch — WebFetch summarises markdown and drops critical commands).
@@ -335,7 +335,7 @@ The macOS app still targets 10.15+. Only the optional Tailnet helper built with 
 measured minimum of macOS 12; on 10.15 / 11 the local app continues normally while this remote edge
 is unavailable.
 
-It bundles local Ollama + `bge-m3` embedding (works out of the box), the default source dependencies including X's `twitter-cli` and Reddit's `rdt-cli`, and the default-off embedded Tailnet helper. The latter lets the desktop app join your tailnet without installing system Tailscale. Enable it from Desktop Web or the browser extension's **Settings → General**, choose browser login, an Auth Key, or an OAuth Client Secret plus an authorized device tag, then fully restart the app. Reddit's rdt command backend prefers the connected extension's synced `reddit_session`; `rdt login` remains a manual fallback, and unauthenticated runs fall back to extension tasks. It lives in the **macOS menu bar / Windows system tray**; right-click for "Open Web UI / View runtime logs / Quit". Data uses the same directory as the AI / script installers: `~/OpenBiliClaw` (macOS / Linux) / `%USERPROFILE%\OpenBiliClaw` (Windows), and survives upgrades and uninstalls. Data from older packaged builds under `~/Library/Application Support/OpenBiliClaw` / `%LOCALAPPDATA%\OpenBiliClaw` is copied back on first launch without overwriting existing files. If a broken `config.toml` / `config.local.toml` prevents startup, the desktop package backs the bad file up as `*.invalid`, regenerates the default config, then opens `/setup/` so initialization can run again; `data/` is left untouched.
+It bundles no local model: chat and embedding both call the cloud API you configure. It does include the default source dependencies including X's `twitter-cli` and Reddit's `rdt-cli`, and the default-off embedded Tailnet helper. The latter lets the desktop app join your tailnet without installing system Tailscale. Enable it from Desktop Web or the browser extension's **Settings → General**, choose browser login, an Auth Key, or an OAuth Client Secret plus an authorized device tag, then fully restart the app. Reddit's rdt command backend prefers the connected extension's synced `reddit_session`; `rdt login` remains a manual fallback, and unauthenticated runs fall back to extension tasks. It lives in the **macOS menu bar / Windows system tray**; right-click for "Open Web UI / View runtime logs / Quit". Data uses the same directory as the AI / script installers: `~/OpenBiliClaw` (macOS / Linux) / `%USERPROFILE%\OpenBiliClaw` (Windows), and survives upgrades and uninstalls. Data from older packaged builds under `~/Library/Application Support/OpenBiliClaw` / `%LOCALAPPDATA%\OpenBiliClaw` is copied back on first launch without overwriting existing files. If a broken `config.toml` / `config.local.toml` prevents startup, the desktop package backs the bad file up as `*.invalid`, regenerates the default config, then opens `/setup/` so initialization can run again; `data/` is left untouched.
 
 > **macOS signing and notarization**: GitHub Actions requires Developer ID signing and Apple notarization; failed validation produces no experimental fallback. A normal internet-download confirmation may appear on first launch. Quit the old version before upgrading. See [signing details](docs/modules/packaging.md).
 >
@@ -406,7 +406,7 @@ The script needs `git` and Python 3.11+. It clones the repo, then asks for the p
 <details>
 <summary>Advanced: Docker deployment</summary>
 
-Good if you already have Docker installed; ships with an Ollama embedding sidecar. The prebuilt image needs no source checkout:
+Good if you already have Docker installed. The prebuilt image needs no source checkout:
 
 ```bash
 mkdir -p ~/openbiliclaw && cd ~/openbiliclaw
@@ -451,30 +451,6 @@ Xiaohongshu, Douyin, YouTube, Zhihu, and Linux.do use Chrome extension tasks; Re
 </details>
 
 <details>
-<summary>Advanced: local embedding / Ollama</summary>
-
-If you do not want a separate embedding API key, or remote embedding quota is an issue, install Ollama once and use local `bge-m3`:
-
-```bash
-# macOS
-# Install and launch the official Ollama.app; it creates the ollama CLI link.
-open https://ollama.com/download/mac
-
-# Linux
-curl -fsSL https://ollama.com/install.sh | sh && ollama serve &
-```
-
-macOS / Windows users can install the official app from [ollama.com/download](https://ollama.com/download). Start Ollama, then run:
-
-```bash
-uv run openbiliclaw setup-embedding
-```
-
-The wizard pulls `bge-m3` (~1.1GB, CPU-only is fine) and writes the config.
-
-</details>
-
-<details>
 <summary>Advanced: manual installation and discovery debugging</summary>
 
 > Human reference: [docs/agent-install.md](docs/agent-install.md) (short agent-facing contract) and [docs/agent-deployment.md](docs/agent-deployment.md) (long-form troubleshooting).
@@ -511,7 +487,7 @@ vim config.toml
 # One-command init (fetch history · build profile · first discovery)
 openbiliclaw init
 
-# Optional: enable local Ollama as an independent embedding provider
+# Optional: configure an independent embedding provider (Gemini / OpenAI / any OpenAI-compatible gateway)
 openbiliclaw setup-embedding
 
 # Manual content discovery
@@ -645,7 +621,7 @@ The whole loop stays local — the agent host just calls the CLI bridge; your pr
 - 📦 **Cross-Machine Migration** — export/import portable config, SQLite, profiles, cookies, and the image cache from Desktop settings; imports are validated and staged, can be inspected or cancelled, then apply on restart with rollback copies. `.obcbackup` contains plaintext secrets but excludes the source machine's API-login password, session-signing secret, and extension device keys
 - 🔬 **Self-Optimizing Eval Loops** — five modules each carry an LLM-as-judge loop that improves prompt quality over rounds
 - 🔒 **Fully Private** — SQLite, config, profiles, and caches stay local; LLM calls use your own key, and each instance is built for exactly one person
-- 🔌 **Local Embedding** — optional Ollama + bge-m3, automatic acceleration with CPU fallback, no extra API key
+- 🔌 **Cloud Embedding** — Gemini / OpenAI / a self-hosted OpenAI-compatible gateway; no local model required
 - 🔧 **Fully Controllable** — create multiple independent channels of the same LLM type and drag global or per-module failover chains; edit your profile or add custom Skills
 
 ## 🏛️ Architecture Overview
@@ -668,7 +644,7 @@ TikTok login sync: `extension cookie → validate and persist → safe runtime r
 
 TikTok account flow: `manual init / explicitly enabled incremental sync → source enabled policy (startup / reload) → bootstrap_profile (likes / favorites / following; history optional; frozen budgets) → extension durable acceptance / viewer-owned lists → account binding / staged result → idempotent events → profile`. Native saves use a separate `local membership → durable native-save job → exact-video favorite / reload read-only confirmation` path. Installed Chrome login and explicit empty-list handling have passed. Nonempty real-account profiling/incremental sync remain unverified; native favorites are deferred. See the [acceptance ledger](docs/platform-source-acceptance.tiktok.md) and [#295](https://github.com/whiteguo233/OpenBiliClaw/issues/295).
 
-Local embedding: `requests / diagnostics → Ollama automatic acceleration → valid vector; runner failure → CPU retry → validated result`. CPU selection is shared for the backend process lifetime; restarting retries automatic acceleration.
+Cloud embedding: `request → embedding provider HTTP call → vector`. When the provider is unconfigured or its probe fails, semantic features (dedup, diversity) degrade gracefully instead of blocking the pipeline.
 
 Recommendation requests: `main API → default dedicated recommendation process → current SQLite candidates → full ranking → atomic commit → cards + total/platform inventory`. The main API relays inventory events and observes background refills while clients are connected.
 
@@ -782,7 +758,7 @@ OpenBiliClaw/
 │   ├── youtube/               # Google Takeout import parser
 │   ├── api/                   # Local FastAPI (config rollback / degraded mode / popup API)
 │   ├── tls_proxy.py           # Default-off LAN/self-managed HTTPS edge
-│   ├── runtime/               # Refresh, feedback coalescing, presence gate, shared CLI/desktop autostart reconcile, Ollama, degraded RuntimeContext
+│   ├── runtime/               # Refresh, feedback coalescing, presence gate, shared CLI/desktop autostart reconcile, degraded RuntimeContext
 │   ├── bilibili/              # Bilibili API layer (WBI signing · rate control)
 │   ├── llm/                   # Multi-model LLM adapters + structured JSON tolerance
 │   ├── i18n/                  # Locale contract, UI + semantic catalogs, output-language policy
@@ -802,7 +778,7 @@ OpenBiliClaw/
 |--------|-----------|
 | Backend | Python 3.11+ |
 | Browser Extension | TypeScript + Chrome Extension (Manifest V3) |
-| LLM | Multiple independent Base URL / token / model instances per provider type, with ordered global and per-module failover chains; first migration keeps a permanent legacy backup and `config-export-legacy` creates an old-version copy; built-in Gemini / DeepSeek / OpenAI / Claude / OpenRouter / OrcaRouter / Requesty / API Route / Cheaper Inference / Ollama; any OpenAI-compatible endpoint works; OpenAI can experimentally reuse Codex CLI ChatGPT OAuth via the official Codex transport |
+| LLM | Multiple independent Base URL / token / model instances per provider type, with ordered global and per-module failover chains; first migration keeps a permanent legacy backup and `config-export-legacy` creates an old-version copy; built-in Gemini / DeepSeek / OpenAI / Claude / OpenRouter / OrcaRouter / Requesty / API Route / Cheaper Inference; any OpenAI-compatible endpoint works (vLLM / LM Studio / OneAPI included); OpenAI can experimentally reuse Codex CLI ChatGPT OAuth via the official Codex transport |
 | Bilibili API | Custom client (WBI signing · v_voucher auto-recovery · rate control) |
 | Xiaohongshu | Extension DOM/state extraction + task dispatch; search/creator run in background tabs and search uses a MAIN-world page-response bridge when hidden virtual DOM is absent; only scrolling init opens `/explore` in the foreground and clicks the profile entry; no backend crawling |
 | Douyin | Extension DOM + MAIN-world passive fetch tap + task dispatch; init imports post / favorite / like / follow signals; search / hot / feed discovery starts from the Douyin home page and uses DOM interactions to trigger loading; search/feed passively collect page responses / rendered results, and hot can use a hot-board `group_id` seed as a logged-in related fallback; no backend login crawling |

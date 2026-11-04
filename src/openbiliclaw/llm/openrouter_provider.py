@@ -12,7 +12,7 @@ class OpenRouterProvider(OpenAIProvider):
     """OpenRouter provider with optional attribution headers."""
 
     # OpenRouter routes most chat models, but its embeddings coverage is
-    # spotty per-route — better to fall back to ollama / gemini by default
+    # spotty per-route — better to fall back to gemini by default
     # than to surprise users with mid-pipeline 404s. Users who want
     # OpenRouter embedding can set ``[llm.embedding] provider="openrouter"``
     # with an explicit ``<vendor>/<model>`` (e.g.

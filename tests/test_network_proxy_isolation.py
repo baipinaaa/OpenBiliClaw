@@ -1,6 +1,6 @@
 """CN-direct isolation guard for [network].proxy.
 
-Pitfall rule 1: bilibili / douyin / ollama must NEVER inherit a proxy — an
+Pitfall rule 1: bilibili / douyin must NEVER inherit a proxy — an
 exit IP trips CN risk control (df626f3f). This test pins that the overseas
 outbound proxy set via ``openbiliclaw.network`` does not leak into any
 CN-direct httpx client construction, and that those clients keep
@@ -116,46 +116,6 @@ def test_cn_direct_clients_stay_direct_under_system_mode(
         network.reset_outbound_proxy_for_tests()
 
 
-def test_ollama_factory_provider_has_no_outbound_proxy() -> None:
-    """Ollama chat provider (localhost) must not carry the outbound proxy."""
-    from openbiliclaw.config import Config, LLMConfig, LLMProviderConfig
-    from openbiliclaw.llm.registry import _maybe_ollama_provider
-
-    config = Config(llm=LLMConfig(ollama=LLMProviderConfig(model="llama3")))
-    provider = _maybe_ollama_provider(config, {})
-    assert provider is not None
-    # OllamaProvider subclasses OpenAIProvider; an empty _proxy means its
-    # AsyncOpenAI client was built without an injected proxied http_client.
-    assert getattr(provider, "_proxy", "") == ""
-
-
-# ── Domestic-endpoint carve-out ──────────────────────────────────────────
-# Chinese LLM gateways must connect DIRECT even when an overseas proxy is set,
-# else a user's proxy-for-OpenAI routes their DeepSeek / SenseNova / 通义
-# requests through the ladder and they time out ("商汤请求总是超时").
-
-
-@pytest.mark.parametrize(
-    ("url", "expected"),
-    [
-        ("https://api.deepseek.com", True),
-        ("https://api.sensenova.cn/v1", True),
-        ("https://open.bigmodel.cn/api/paas/v4", True),
-        ("https://dashscope.aliyuncs.com/compatible-mode/v1", True),
-        ("https://qianfan.baidubce.com/v2", True),
-        ("https://ark.cn-beijing.volces.com/api/v3", True),
-        ("https://api.siliconflow.cn/v1", True),
-        ("api.moonshot.cn/v1", True),  # scheme-less base_url
-        ("http://127.0.0.1:8317/v1", True),  # local gateway (cpa)
-        ("http://localhost:11434/v1", True),
-        ("http://192.168.1.50:8000/v1", True),  # LAN self-hosted vLLM
-        ("https://api.openai.com/v1", False),
-        ("https://openrouter.ai/api/v1", False),
-        ("https://generativelanguage.googleapis.com", False),
-        ("https://api.groq.com/openai/v1", False),
-        ("", False),
-    ],
-)
 def test_is_domestic_endpoint(url: str, expected: bool) -> None:
     assert network.is_domestic_endpoint(url) is expected
 

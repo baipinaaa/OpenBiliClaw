@@ -2,10 +2,8 @@
 # Copy this file to config.toml and edit as needed.
 # 首次运行如果缺少 config.toml，程序会自动基于本文件生成模板。
 # 使用远程模型（OpenAI / Claude / Gemini / DeepSeek / OpenRouter / OrcaRouter / Requesty / API Route / Cheaper Inference）时，需要为调用链中的实例填写 api_key。
-# 本地 Ollama 主要用于向量检索（embedding, bge-m3）。作为聊天 provider 属高级用法：
-# 捆绑的 Ollama 只装了 embedding 模型，小体积本地聊天模型达不到内容管线质量线，
-# 因此图形向导 / init / bootstrap 都不再推荐把它当聊天默认。确要如此的高级用户可手动
-# 新建一个 provider_type = "ollama" 的实例，并把实例 ID 放入 default_chain。
+# 本版本不内置任何本地推理运行时；如需自建服务，请用 provider_type = "openai_compatible"
+# 指向你自己的 OpenAI 协议网关（vLLM / LM Studio / OneAPI 等）。
 
 [general]
 # 界面 / CLI / 新生成内容的语言：zh-Hans（简体中文）、zh-Hant（繁體中文・台灣）、en（English）。
@@ -139,7 +137,7 @@ default_chain = ["deepseek"]
 # 总并发 3；后台派生为 2
 concurrency = 3
 # Global request timeout for all LLM providers (seconds).
-# Applies to OpenAI / Claude / Gemini / DeepSeek / Ollama / OpenRouter /
+# Applies to OpenAI / Claude / Gemini / DeepSeek / OpenRouter /
 # OrcaRouter / Requesty / API Route / Cheaper Inference / openai_compatible. Allowed range: 10..1200. Default 1200s (20 minutes).
 timeout = 1200
 # 新实例请直接在桌面设置页创建。手工配置时复制下面的完整表，
@@ -225,7 +223,6 @@ reasoning_effort = "medium"
 # using the ordered endpoint instances in ``[llm].default_chain``.
 #
 # provider: empty = disable embedding; embedding does not implicitly follow the chat chain
-#           "ollama" = local Ollama (no API key needed)
 #           "openai" / "gemini" = remote embeddings
 #           "openai_compatible" = any OpenAI-protocol /v1/embeddings endpoint
 #             (vLLM / LM Studio / OneAPI / self-hosted bridge); base_url is
@@ -234,31 +231,29 @@ reasoning_effort = "medium"
 # model:    matched to provider when empty:
 #             gemini → gemini-embedding-001
 #             openai → text-embedding-3-small
-#             ollama → bge-m3   (multilingual, ~1.1GB, sub-second on CPU)
 #
-# To enable local Ollama embedding:
-#   1. install Ollama   (Mac: `brew install ollama` ; Windows: ollama.com/download)
-#   2. `ollama pull bge-m3`
-#   3. set `provider = "ollama"` here, or run `openbiliclaw setup-embedding`
+# To enable remote embedding:
+#   1. set `provider` to a supported remote provider and fill its api_key
+#   2. set `model` (optional — provider default is used when empty)
+#   or run `openbiliclaw setup-embedding` for an interactive walkthrough.
 provider = ""
 # Leave model empty so the registry picks the provider-appropriate default.
-# Hardcoding "gemini-embedding-001" here used to break OpenAI / Ollama paths
-# (the model name only exists on Gemini's API; other backends 404 on it).
+# Hardcoding a model name here breaks other providers (the model only exists
+# on one vendor's API; other backends 404 on it).
 # v0.3.20+ note: the registry's per-provider defaults are
 #   gemini → gemini-embedding-001
 #   openai → text-embedding-3-small
-#   ollama → bge-m3
 model = ""
 # v0.3.32+: dedicated embedding credentials. Empty values only borrow the
 # first matching enabled [llm.instances.*] endpoint when fallback_enabled=true
-# (back-compat; emits a one-time WARNING). Ollama doesn't need an api_key.
+# (back-compat; emits a one-time WARNING).
 # openai_compatible (and "openai" with a custom base_url) also accepts an
 # empty api_key for a no-auth local endpoint.
-# base_url is optional for Ollama (defaults to localhost), OpenAI
-# (defaults to api.openai.com), and Gemini (defaults to the official API).
+# base_url is optional for OpenAI (defaults to api.openai.com) and Gemini
+# (defaults to the official API).
 api_key = ""
 base_url = ""
-# Target embedding vector dimension. Default 1024 matches local Ollama bge-m3.
+# Target embedding vector dimension. Default 1024 matches gemini-embedding-001.
 # Set 0 only when you intentionally want the provider's native default.
 output_dimensionality = 1024
 # Cosine similarity threshold: topics above this are considered "same topic"
@@ -275,7 +270,7 @@ fallback_provider = ""
 #     api_key = "sk-..."   # or env DASHSCOPE_API_KEY
 #     base_url = ""        # default https://dashscope.aliyuncs.com
 #     # output_dimensionality = 1024  # qwen3-vl: 2560/2048/1536/1024/768/512/256
-# Default off — local ollama/bge-m3 and text-only remote models skip images.
+# Default off — text-only remote models skip images.
 # Independent of [discovery].multimodal_evaluation_enabled (vision LLM eval).
 multimodal_enabled = false
 # L2 persistent cache (data/embedding_cache.db) 磁盘预算，单位字节；0 = 不设上限。
@@ -347,7 +342,7 @@ headed = false
 # OpenCLI)、Bangumi(api.bgm.tv 与封面 CDN lain.bgm.tv 均为海外 Cloudflare,
 # 国内网络直连易超时,需走代理)、GitHub 内容来源 / 自动更新、Codex OAuth。
 # X / Reddit 回落到浏览器扩展任务时仍由浏览器自己的网络设置决定。
-# B站 / 抖音 / Ollama 等国内直连请求始终直连,不受此项影响。
+# B站 / 抖音 等国内直连请求始终直连,不受此项影响。
 # system(默认) = 继承环境 / 系统代理；direct = 忽略环境 / 系统代理；
 # custom = 只使用下方 proxy。
 # 默认给 system,是因为上面列的全是海外服务:direct 下国内网络必然超时,
@@ -894,9 +889,6 @@ multimodal_image_timeout_seconds = 6
 # 登录系统后是否自动拉起 OpenBiliClaw 后端。默认关闭；请通过设置页或
 # `openbiliclaw autostart enable` 开启，以便同步注册/反注册 OS 自启动项。
 enabled = false
-# 当 LLM / embedding 使用本机 Ollama 时，后端启动时顺带确保 `ollama serve`
-# 已运行。仅管理本机 127.0.0.1:11434，远端 Ollama 不会被拉起。
-manage_ollama = true
 
 [saved_sync]
 # 同步外部平台收藏的总开关；默认关闭，需由用户明确开启。

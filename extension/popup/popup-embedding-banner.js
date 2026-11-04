@@ -45,8 +45,9 @@ export function shouldShowEmbeddingBanner(health, runtimeStatus = null) {
  * regains focus.
  *
  * The backend probes /api/health live, so once the user fixes embedding
- * (e.g. `ollama pull bge-m3`) and returns to the panel, a stale "off" banner
- * clears itself instead of lingering until the panel is fully reopened —
+ * (e.g. adds a cloud provider key in settings) and returns to the panel, a
+ * stale "off" banner clears itself instead of lingering until the panel is
+ * fully reopened —
  * `maybeShowEmbeddingBanner` otherwise only runs once, at panel open.
  *
  * @param {() => unknown} recheck

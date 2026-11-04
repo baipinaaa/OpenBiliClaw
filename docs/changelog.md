@@ -2,6 +2,28 @@
 
 > 按里程碑记录各阶段交付内容。每次分支合回 main 时追加条目。
 
+## Unreleased：移除本地模型支持（Ollama 聊天 + 本地 embedding）
+
+> 破坏性变更。本版本不再内置任何本地推理运行时，聊天与 embedding 全部走远程 API（OpenAI / Claude / Gemini / DeepSeek / OpenRouter / OrcaRouter / Requesty / API Route / Cheaper Inference，或任意 OpenAI 兼容自建网关）。
+
+- 删除四个本地运行时模块：`llm/ollama_provider.py`（`OllamaProvider` + `OllamaEmbeddingProvider`）、`llm/ollama_diagnostics.py`、`llm/ollama_embedding_runtime.py`、`runtime/ollama_supervisor.py`（托管进程、健康探测、模型路径编码修复、CPU 回退判定全部移除）；`runtime/embedding_progress.py`、`runtime/embedding_seed.py` 一并删除。
+
+- 配置面收敛：`[llm.ollama]`、`[autostart].manage_ollama`、`[llm.instances.*].num_ctx` 不再被读取或渲染（旧文件里的这些键按未知键容忍，不会报错，但也不再有效果）；`[llm.embedding].provider` 的合法值收敛为 `openai` / `gemini` / `openai_compatible` / `dashscope`，默认留空即**完全不启用** embedding。`provider = "ollama"` 会在 `load_config()` 阶段被拒绝并提示改用云端 provider。
+
+- API 面收敛：删除 `GET/POST /api/embedding/repair`（一键修复 + 单飞 `ollama pull`）、`/api/init/status` 的 `ollama_phase` / `embedding_pull_status` / `embedding_repair_*`、`/api/autostart-status` 的 `manage_ollama` 与 `ollama_required`。embedding 未就绪时不再自动拉模型，而是直接返回 409 并指向设置页检查 API Key / base_url / 模型名。
+
+- CLI：`setup-embedding` 菜单改为「1 云端 Gemini embedding ★默认推荐 / 2 暂不启用 / 3 (高级)自定义 OpenAI 兼容 / 4 (高级)指定其他 provider / 0 跳过」，删掉本地 Ollama 自动启用、`ollama pull` 与安装引导；`discover` 等命令不再启动 Ollama 预检。
+
+- 安装 / 打包 / Docker：删除 `openbiliclaw-ollama` 镜像、compose 里的 ollama sidecar 与 `openbiliclaw_ollama` 卷、`docker/ollama-bundled.Dockerfile`、`docker/ollama-bundled-entrypoint.sh`、`docker/seed-bge-m3.sh`、`packaging/make_model_seed.py`；`packaging/build.py` 去掉 `--no-bundle-ollama` / `--ollama-bin` / `--bundle-embedding` / `--model-seed-dir` 与 `-with-embedding` 变体，安装包统一为单一产物。
+
+- 前端：桌面 Web、setup 向导与浏览器扩展移除 ollama provider 选项、`num_ctx` 输入、embedding 修复按钮与拉取进度条；embedding 未就绪的提示改为「检查 Embedding Provider 的 API Key / base_url 与模型名」。
+
+- 文档全面同步：README（中英）、`docs/modules/{llm,config,cli,runtime,init,extension,api,packaging,discovery}.md`、`docs/architecture.md`、`docs/spec.md`、`docs/agent-install.md`、`docs/docker-deployment.md`、`docs/faq.md`、安装脚本帮助文本。`docs/plans/*`、`docs/testing/*`、`docs/verification/*` 作为历史记录保留原文，`docs/specs/autostart.md` 顶部加变更说明。
+
+- 迁移：升级后请运行 `openbiliclaw setup-embedding` 选择云端 provider（复用已有 Gemini Key 最省事），或在 `config.toml` 里写 `[llm.embedding] provider = "gemini"` + `model = "gemini-embedding-001"`。若不想配 embedding，保持 `provider = ""` 也能正常使用，只是语义去重 / 疲劳度 / 反馈相似度会退化为字符级策略。
+
+- 测试：删除 47 个文件里的本地运行时用例与 6 个专用测试模块，其余用例改为断言「不再有本地路径」；契约测试同步新的安装文档与菜单文案。
+
 ## v0.3.233：画像时间溯源与 ChatGPT 订阅修复（2026-10-30）
 
 - 修复画像把「账号导入」读成「用户行为」的根因（假时间 + 存量当行为）：B 站三条账号同步路径补齐真实时间——`get_following` 解析 `/x/relation/followings` 的 `mtime`，历史 `view_at`、收藏 `fav_time` 镜像进 canonical `metadata.timestamp`，CLI guided init 采集同样保留；首次同步给事件标 `snapshot`。本机账本实测 89,866 条观看只落在 950 个 `created_at` 秒、2,429 条关注只落在 93 个秒，正是「同一秒关注四十多人」的来源。新增 `soul/event_provenance.py` 在 prompt 边界统一投影：`created_at` 不再进入模型（只认 `metadata.timestamp`），存量关注聚合成一行「导入存量：关注了 N 位创作者（时间区间）」，无时间事件标 `time_quality=ingest`。偏好 / 觉察 / 灵魂画像 / 洞察四条 prompt 同步加规则：不得用库存推断外向、EI 只认用户自己的表达、MBTI 不得当 insight 证据；`ProfileBuilder` 对 MBTI 输出做 pole 校验、type 与维度一致性重算，任一维度 strength < 0.60 时把 confidence 压到 0.55。偏好 / 觉察两条 prompt 的用户消息渲染 golden 随之重新采样，并在测试里注明是显式的契约变更。

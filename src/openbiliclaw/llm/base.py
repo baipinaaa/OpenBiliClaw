@@ -112,10 +112,9 @@ def classify_llm_unavailability(exc: BaseException) -> str | None:
       available (typically during guided init, before a chat LLM is
       configured).
     - ``"model_not_found"`` when the provider reachably answered but the
-      configured model does not exist (a local Ollama model never pulled → 404
-      ``not_found_error``, or a wrong/inaccessible model name). Retrying won't
-      help until the user pulls/renames the model, but the loop should log one
-      calm actionable line rather than a full traceback.
+      configured model does not exist (→ 404 ``not_found_error``, or a wrong/inaccessible
+      model name). Retrying won't help until the user fixes the model name in settings,
+      but the loop should log one calm actionable line rather than a full traceback.
     - ``None`` for anything else — a genuine error the caller should keep
       logging loudly.
 
@@ -197,9 +196,8 @@ def _auth_failure_target(auth_error: LLMAuthError | None) -> str:
 
 
 # The provider host was reachable and answered, but the configured *model* is
-# missing: a local Ollama model that was never pulled returns HTTP 404 with
-# ``{"type": "not_found_error", "message": "model 'x' not found, try pulling it
-# first"}``; OpenAI-compat 404s say ``the model 'x' does not exist``. Distinct
+# missing: an unavailable model name returns HTTP 404 (e.g. OpenAI-compat says
+# ``the model 'x' does not exist``). Distinct
 # from ``no_provider`` (no chat provider configured at all) and from auth (401):
 # retrying is futile until the user pulls/renames the model, so callers should
 # surface an actionable "pull the model / fix the name" hint, not a traceback.
@@ -418,7 +416,6 @@ def describe_llm_failure(exc: BaseException) -> str | None:
     moderation = auth_failed = rate_limited = False
     timed_out = no_provider = empty_response = False
     ssl_failed = connect_failed = model_not_found = False
-    ollama_model_missing = False
     auth_error: LLMAuthError | None = None
     while current is not None and id(current) not in seen:
         seen.add(id(current))
@@ -429,8 +426,6 @@ def describe_llm_failure(exc: BaseException) -> str | None:
             "model" in message and "not found" in message
         ):
             model_not_found = True
-            if "ollama" in message:
-                ollama_model_missing = True
         if _is_auth_failure(current, message):
             auth_failed = True
             # First typed error along the chain. Wrappers (fallback / service)
@@ -481,10 +476,6 @@ def describe_llm_failure(exc: BaseException) -> str | None:
             "请到设置页核对所选 AI 服务、API 地址和对话模型名称，"
             "确认服务端提供该模型且当前 API Key 有权使用后重试。"
         )
-        if ollama_model_missing:
-            reason += (
-                "Ollama 服务可能尚未安装该模型；请在运行该服务的机器上执行 `ollama pull <模型名>`。"
-            )
         return reason
     if auth_failed:
         target = _auth_failure_target(auth_error)
@@ -783,8 +774,8 @@ class LLMRegistry:
         # any number of configured endpoint instances.
         self.fallback_chain: list[str] = []
         # Names of providers that should NOT appear in the chat-completion
-        # fallback chain — for example a legacy/injected Ollama instance
-        # registered solely for embedding diagnostics.
+        # fallback chain — for example an endpoint registered solely for
+        # embedding.
         self._chat_disabled: set[str] = set()
 
     def register(
@@ -807,8 +798,8 @@ class LLMRegistry:
 
                 Modern embedding builds a dedicated provider outside this
                 registry. The flag remains a defensive boundary for legacy
-                or injected non-chat providers: a local ``bge-m3`` instance
-                must never receive ``/api/chat`` fallback requests.
+                or injected non-chat providers: a non-chat provider must
+                never receive ``/api/chat`` fallback requests.
         """
         registry_name = str(name or provider.name).strip().lower()
         adapter_name = str(provider_type or provider.name).strip().lower()
@@ -1537,8 +1528,8 @@ class LLMRegistry:
         results: dict[str, HealthCheckResult] = {}
         for provider_name in self.available_providers:
             # ``health_check`` is a real chat completion. Never send one to
-            # an embedding-only registration: that used to probe an implicit
-            # ``llama3`` model and produced recurring Ollama 404s.
+            # an embedding-only registration: probing it would fire a
+            # spurious model-not-found request on every health pass.
             if not self.is_chat_capable(provider_name):
                 continue
             provider = self.get(provider_name)
@@ -1561,7 +1552,7 @@ class LLMRegistry:
         """Return the sequential CHAT-fallback provider order.
 
         Skips providers registered with ``chat_capable=False`` (the
-        embedding-only Ollama case). The default provider is honored
+        embedding-only case). The default provider is honored
         whenever it's chat-capable. A fallback provider is included only
         when ``fallback_provider`` names a registered chat provider; no
         automatic provider walk is performed.

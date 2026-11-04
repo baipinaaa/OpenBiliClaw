@@ -5,11 +5,10 @@
 ; Produces:
 ;     dist\release\OpenBiliClaw-windows-0.3.233-Setup.exe
 ;
-; Expects the PyInstaller onedir output at dist\OpenBiliClaw\ with a bundled
-; ollama.exe + lib\ runners already staged inside it. The GitHub Actions
-; workflow (.github/workflows/build-installers.yml) produces that layout; to
-; build locally, run `python packaging\build.py` then stage ollama into
-; dist\OpenBiliClaw\ before invoking iscc.
+; Expects the PyInstaller onedir output at dist\OpenBiliClaw\. The GitHub
+; Actions workflows (.github/workflows/build-installers.yml and
+; release-desktop.yml) produce that layout; to build locally, run
+; `python packaging\build.py` before invoking iscc.
 
 #ifndef MyAppVersion
   #define MyAppVersion "0.0.0-dev"
@@ -17,13 +16,6 @@
 
 #ifndef MyAppVersionInfoVersion
   #define MyAppVersionInfoVersion MyAppVersion
-#endif
-
-; Installer filename variant suffix, e.g. iscc /DMyAppVariantSuffix=-with-embedding
-; Lets the lean and with-embedding installers coexist in one Release without
-; clobbering each other. Defaults to empty (lean).
-#ifndef MyAppVariantSuffix
-  #define MyAppVariantSuffix ""
 #endif
 
 #define MyAppName "OpenBiliClaw"
@@ -51,7 +43,7 @@ DisableProgramGroupPage=yes
 ; this keeps install friction as low as possible (SmartScreen may still warn).
 PrivilegesRequired=lowest
 ; Upgrades fail with "files in use" if the previous OpenBiliClaw is still
-; running (it holds OpenBiliClaw.exe + the bundled ollama it spawned open).
+; running (it holds OpenBiliClaw.exe and the backend it spawned open).
 ; Force the Restart Manager to close anything holding our files, and the [Code]
 ; below also taskkills the process tree as a belt-and-suspenders fallback
 ; (PyInstaller console apps don't always cooperate with RM).
@@ -71,7 +63,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ; Script lives in packaging\; resolve [Files] Source + OutputDir from repo root.
 SourceDir=..
 OutputDir=dist\release
-OutputBaseFilename=OpenBiliClaw-windows-{#MyAppVersion}{#MyAppVariantSuffix}-Setup
+OutputBaseFilename=OpenBiliClaw-windows-{#MyAppVersion}-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -81,7 +73,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-; Whole PyInstaller onedir tree, including the staged ollama.exe + lib\ runners.
+; Whole PyInstaller onedir tree (our own exe + bundled runtime).
 Source: "dist\OpenBiliClaw\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
@@ -117,7 +109,7 @@ var
   ResultCode: Integer;
 begin
   // Best-effort: terminate any running OpenBiliClaw (and its child processes —
-  // the backend, and the bundled ollama it may have spawned) so their open file
+  // the backend it may have spawned) so their open file
   // handles release before Setup overwrites {app}. taskkill is a no-op (nonzero
   // exit, ignored) when nothing is running.
   Exec(ExpandConstant('{cmd}'), '/C taskkill /IM "{#MyAppExeName}" /T /F', '',
@@ -137,7 +129,7 @@ end;
 // running" gate never fires. The kill therefore lives in
 // CurUninstallStepChanged(usUninstall), which runs AFTER the AppMutex gate
 // passed and immediately before file deletion — cleaning up processes the
-// gate cannot see (mutex-less pre-AppMutex installs, orphaned worker/ollama
+// gate cannot see (mutex-less pre-AppMutex installs, orphaned worker
 // children outliving the tray parent). taskkill is a no-op (nonzero exit,
 // ignored) when nothing is running.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

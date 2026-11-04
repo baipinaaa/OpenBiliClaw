@@ -81,8 +81,8 @@ def test_desktop_trusts_terminal_init_contract_and_keeps_embedding_override() ->
     # partial success. The client must not invent a second indefinite 95% wait.
     assert "pct: 95" not in app_js
     assert "initWaitingForFirstPool" not in app_js
-    # Embedding pull borrows the progress bar while idle.
-    assert "embeddingPull.pct" in app_js
+    # Embedding state is surfaced through the checklist hint, not a pull bar.
+    assert "embeddingPull.pct" not in app_js
 
 
 # ── Setup wizard mirror (single-file inline JS, no test infra of its own) ────
@@ -148,8 +148,8 @@ def test_setup_wizard_uses_terminal_contract_and_keeps_embedding_override() -> N
     assert '"95%"' not in html
     assert "renderWaitingForFirstPool" not in html
     assert "showInitCompletion" in html
-    # Embedding pull borrows the progress bar while idle.
-    assert "pull.active && !status?.running" in html
+    # No embedding pull bar is left in the wizard.
+    assert "pull.active && !status?.running" not in html
 
 
 def test_timeout_reason_is_actionable_and_announced_across_web_surfaces() -> None:
@@ -187,19 +187,9 @@ def test_desktop_reattaches_init_poll_when_a_run_is_live_at_load() -> None:
     # The init-status resource owner must attach the poll for every live state.
     assert "state.initStatus = snapshot;" in apply_snapshot
     assert "snapshot.running" in apply_snapshot
-    assert "embeddingPullNeedsPolling(snapshot)" in apply_snapshot
+    assert "embeddingPullNeedsPolling" not in app_js
     assert "initWaitingForFirstPool" not in apply_snapshot
     assert "scheduleInitStatusRefresh(INIT_STATUS_POLL_MS)" in apply_snapshot
-
-
-def test_desktop_keeps_watching_a_startup_embedding_pull_before_init() -> None:
-    """A slow first-run bge-m3 pull is live work even when init is still idle."""
-    app_js = _app_js()
-    assert "function embeddingPullNeedsPolling(status)" in app_js
-    assert "embeddingPullNeedsPolling(status)" in app_js
-    apply_snapshot = app_js.split("function applyInitStatusSnapshot(snapshot)", 1)[1]
-    apply_snapshot = apply_snapshot.split("\n      }", 1)[0]
-    assert "embeddingPullNeedsPolling(snapshot)" in apply_snapshot
 
 
 def test_desktop_terminal_init_status_wins_over_stale_runtime_snapshot() -> None:

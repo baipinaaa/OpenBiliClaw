@@ -291,7 +291,7 @@
         <p class="sub" id="doneSummary">基础配置和首轮初始化已完成，本地引擎可以开始为你工作了。</p>
         <ul class="check-list">
           <li><span class="tick">✓</span><div><b>AI 大脑</b><br><span class="hint" id="doneLlm">已连接</span></div></li>
-          <li><span class="tick">✓</span><div><b>本地语义引擎</b><br><span class="hint">Ollama bge-m3 已随包就绪,推荐去重 / 多样性已开启</span></div></li>
+          <li><span class="tick">✓</span><div><b>语义引擎</b><br><span class="hint">Embedding provider 已就绪，推荐去重 / 多样性已开启</span></div></li>
           <li id="biliDone" class="pending"><span class="tick">…</span><div><b>平台账号</b><br><span class="hint" id="doneBili">B 站可稍后连接；Reddit 等来源按初始化勾选项检查</span></div></li>
           <li id="initDoneRow"><span class="tick">✓</span><div><b>首轮初始化</b><br><span class="hint" id="doneInit">完整画像和首轮可用推荐均已就绪</span></div></li>
         </ul>
@@ -443,7 +443,6 @@
       "requesty",
       "api_route",
       "cheaperinference",
-      "ollama",
       "openai_compatible",
     ]);
     // Platform roster and source-auth interpretation come from the module the
@@ -473,7 +472,7 @@
       already_running: "初始化正在进行中。",
       bilibili_not_logged_in: "还没检测到 B站 登录。",
       llm_not_ready: "AI 服务还没配好或当前不可用。",
-      embedding_not_ready: "向量模型还没就绪，请等待 bge-m3 下载完成或修复 Ollama 后重试。",
+      embedding_not_ready: "向量模型还没就绪，请到设置页检查 Embedding Provider 的 API Key / base_url 后重试。",
       already_initialized: "已经初始化过了；如需重建，请到设置页。",
       local_only: "只能在本机发起初始化。",
       no_sources_selected: "至少勾选一个数据来源。",
@@ -530,8 +529,8 @@
     // key: PUT /api/config only touches fields present in the payload.
     const savedKeyProviders = new Set();
     // Keep each provider's model / endpoint fields separate. Without this,
-    // switching from a third-party provider to Ollama retained the previous
-    // model name (and a relaunch omitted the saved compatible Base URL), so a
+    // switching between third-party providers retained the previous model
+    // name (and a relaunch omitted the saved compatible Base URL), so a
     // valid saved configuration failed its very first real setup probe.
     const savedProviderConfigs = new Map();
     const providerDrafts = new Map();
@@ -1118,22 +1117,6 @@
       return (Array.isArray(keys) ? keys : []).map((key) => byKey.get(key) || key);
     }
 
-    function embeddingPhaseHint(prereq) {
-      return prereq?.ollama_phase === "starting" ? "Ollama 启动中…" : "";
-    }
-
-    function embeddingPullProgressView(status) {
-      const prereq = status?.prerequisites || {};
-      const active = Boolean(prereq.embedding_repair_running || prereq.embedding_check === "repairing");
-      const completed = Number(prereq.embedding_repair_completed || 0);
-      const total = Number(prereq.embedding_repair_total || 0);
-      const pct = total > 0
-        ? Math.max(1, Math.min(99, Math.round((completed * 100) / total)))
-        : active ? 1 : 0;
-      const label = String(prereq.embedding_pull_status || prereq.embedding_detail || "").trim() || "正在下载向量模型…";
-      return { active, pct, label };
-    }
-
     function buildInitChecklist(status, selected = null) {
       const prereq = status?.prerequisites || {};
       const enabled = enabledPlatforms(status);
@@ -1141,13 +1124,7 @@
       // B站 login only blocks when bilibili is among the checked sources.
       const biliSelected = selectedSources ? selectedSources.includes("bilibili") : true;
       const embeddingRequired = Boolean(prereq.embedding_required);
-      const embeddingHint = [
-        embeddingPhaseHint(prereq),
-        String(prereq.embedding_pull_status || prereq.embedding_detail || "").trim(),
-      ].filter(Boolean).join(" ");
-      const embeddingCheck = String(prereq.embedding_check || "");
-      const embeddingAutoRepairable = ["model_missing", "model_broken", "model_path_encoding"].includes(embeddingCheck);
-      const embeddingGuidanceOnly = ["disk_full", "network", "model_oom", "provider_error"].includes(embeddingCheck);
+      const embeddingHint = String(prereq.embedding_detail || "").trim();
       // Label must state the ACTUAL probe result — a fixed "已登录" item name
       // reads as "logged in" the moment the row stops being a red ✗.
       const biliOk = Boolean(prereq.bilibili_logged_in);
@@ -1176,21 +1153,13 @@
           ok: Boolean(prereq.embedding_ready),
           hard: embeddingRequired,
           // Backend classifies the cause (embedding_detail, v0.3.155+):
-          // Ollama 未运行 / 缺模型 / 模型损坏 / 配置无效 / repairing（下载中，
-          // detail 带实时百分比，3s 轮询自动刷新）。Fall back to the generic
+          // 配置无效 / provider 不可达 / 探测失败。Fall back to the generic
           // copy on older backends.
           hint:
             embeddingHint ||
             (embeddingRequired
-              ? "本地 Ollama + bge-m3 需要完成一次真实向量请求；模型仍在下载或服务异常时请稍后重试。"
+              ? "Embedding provider 需要完成一次真实向量请求；请检查 API Key / base_url 与模型名后重试。"
               : "未配置 embedding 时可以先初始化；推荐去重和语义检索会弱一些。"),
-          // One-click server-side `ollama pull` when the missing model is the
-          // only problem (v0.3.155+). Hidden while a repair is running — the
-          // hint line already shows live progress.
-          repairable: embeddingAutoRepairable || embeddingGuidanceOnly,
-          repairLabel: embeddingCheck === "model_path_encoding"
-            ? "迁移模型目录并修复"
-            : embeddingGuidanceOnly ? "重新检测" : "自动下载向量模型",
         },
         {
           key: "platforms",
@@ -1409,38 +1378,7 @@
           hint.textContent = row.hint;
           li.append(hint);
         }
-        if (!row.ok && row.repairable) {
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "btn ghost init-repair-btn";
-          btn.setAttribute("data-embedding-repair", "1");
-          btn.textContent = row.repairLabel || "自动下载向量模型";
-          btn.addEventListener("click", () => void startEmbeddingRepairFromChecklist(btn));
-          li.append(btn);
-        }
         root.append(li);
-      }
-    }
-
-    // Kick the server-side `ollama pull` (POST /api/embedding/repair); the
-    // 3s init-status poll then renders live percent on the checklist row
-    // (embedding_check="repairing"). 409 already_running is success-shaped.
-    async function startEmbeddingRepairFromChecklist(btn) {
-      const originalLabel = btn.textContent || "自动下载向量模型";
-      btn.disabled = true;
-      btn.textContent = originalLabel === "重新检测" ? "检测中…" : "启动下载…";
-      try {
-        const r = await fetchWithTimeout("/api/embedding/repair", { method: "POST" }, 20000);
-        if (!r.ok && r.status !== 409) throw new Error("HTTP " + r.status);
-        const body = await r.json().catch(() => ({}));
-        if (r.status === 409 && body.error && body.error !== "already_running") {
-          throw new Error(body.detail || body.error);
-        }
-        scheduleInitPoll(300);
-      } catch (e) {
-        btn.disabled = false;
-        btn.textContent = originalLabel;
-        setInitReason(`向量模型下载启动失败：${e.message || e}`);
       }
     }
 
@@ -1648,10 +1586,6 @@
     }
 
     function progressView(status, nowMs = Date.now()) {
-      const pull = embeddingPullProgressView(status);
-      if (pull.active && !status?.running) {
-        return { pct: pull.pct, failed: null, label: pull.label, stageDetailText: "" };
-      }
       const total = status?.total_stages || 4;
       const stages = Array.isArray(status?.stages) ? status.stages : [];
       const done = stages.filter((s) => s.status === "ok").length;
@@ -1799,14 +1733,7 @@
           return;
         }
         clearInitPoll();
-        // Pre-init: keep the checklist fresh, and while a one-click model
-        // download is running keep polling so the row shows live percent
-        // (embedding_check="repairing", detail carries progress).
         renderInitChecklist(status, readSelectedInitSources());
-        if (embeddingPullProgressView(status).active) {
-          scheduleInitPoll(INIT_POLL_MS);
-          return;
-        }
         if (status.reason && status.reason !== "none") {
           const failedStage = (Array.isArray(status.stages) ? status.stages : [])
             .find((s) => s.status === "failed" || s.status === "cancelled");
@@ -1876,11 +1803,6 @@
       }
       if (status.initialized) {
         showInitCompletion(status);
-        return;
-      }
-      if (embeddingPullProgressView(status).active) {
-        renderInitProgress(status);
-        scheduleInitPoll(INIT_POLL_MS);
         return;
       }
       if (!selected.length) {
@@ -2143,7 +2065,7 @@
             $("#provider").value = prov;
           } else if (prov && !optionExists) {
             // A saved default_provider that the wizard no longer offers (e.g.
-            // "ollama", which is embedding-only here). Don't silently drop it —
+            // a self-hosted openai_compatible gateway). Don't silently drop it —
             // remember it so we can flag it after switchProvider() (which
             // clears #msg0) instead of losing the notice.
             unlistedProvider = prov;
@@ -2154,7 +2076,7 @@
       if (unlistedProvider) {
         showTextMsg(
           "#msg0",
-          "检测到已配置的 provider「" + unlistedProvider + "」不在推荐列表中（本地 Ollama 仅用于向量检索）；" +
+          "检测到已配置的 provider「" + unlistedProvider + "」不在推荐列表中；" +
             "如需继续使用请到设置页，或在这里重新选择一个聊天服务商。",
           "info",
         );
@@ -2176,16 +2098,6 @@
         }
         if (status.initialized) {
           showInitCompletion(status);
-          return;
-        }
-        // The packaged desktop may start pulling bge-m3 before guided init
-        // owns a run. Attach the wizard to that live progress immediately;
-        // otherwise the first click on “开始初始化” becomes the accidental
-        // status-poll trigger users experience as a frozen download bar.
-        if (embeddingPullProgressView(status).active) {
-          setStep(2);
-          renderInitProgress(status);
-          scheduleInitPoll(INIT_POLL_MS);
           return;
         }
       } catch {}

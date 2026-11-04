@@ -39,12 +39,11 @@ def _save_runtime_config(
         llm = LLMConfig(
             default_provider="openai",
             openai=LLMProviderConfig(api_key="", model="gpt-4o-mini"),
-            ollama=LLMProviderConfig(model="", base_url=""),
         )
     else:
         llm = LLMConfig(
-            default_provider="ollama",
-            ollama=LLMProviderConfig(model="qwen3:8b", base_url="http://127.0.0.1:11434"),
+            default_provider="openai",
+            openai=LLMProviderConfig(api_key="test-key"),
         )
     config = Config(llm=llm, data_dir=str(root / "data"))
     config.scheduler.enabled = False

@@ -157,23 +157,23 @@ class _FakeImageEmbedProvider(_FakeEmbedProvider):
 
 async def test_probe_true_when_provider_returns_vector() -> None:
     provider = _FakeEmbedProvider(vector=[0.1, 0.2])
-    service = EmbeddingService(provider, model="bge-m3")
+    service = EmbeddingService(provider, model="custom-embed-v2")
 
     assert await service.probe() is True
     assert provider.calls  # the provider was actually hit
 
 
 async def test_probe_false_when_provider_returns_empty() -> None:
-    # Empty vector = transient/upstream failure (e.g. bge-m3 not pulled).
+    # Empty vector = transient/upstream failure (e.g. custom-embed-v2 not pulled).
     provider = _FakeEmbedProvider(vector=[])
-    service = EmbeddingService(provider, model="bge-m3")
+    service = EmbeddingService(provider, model="custom-embed-v2")
 
     assert await service.probe() is False
 
 
 async def test_probe_false_when_provider_raises() -> None:
     provider = _FakeEmbedProvider(error=RuntimeError("404 Not Found"))
-    service = EmbeddingService(provider, model="bge-m3")
+    service = EmbeddingService(provider, model="custom-embed-v2")
 
     assert await service.probe() is False
 
@@ -182,7 +182,7 @@ async def test_probe_bypasses_cache_and_hits_provider_each_call() -> None:
     # A cached success must never mask a provider that later goes down, so
     # probe() issues a real provider call instead of reading the cache.
     provider = _FakeEmbedProvider(vector=[0.5, 0.5])
-    service = EmbeddingService(provider, model="bge-m3")
+    service = EmbeddingService(provider, model="custom-embed-v2")
 
     await service.probe()
     await service.probe()
@@ -240,7 +240,7 @@ def test_embedding_cache_is_thread_safe_across_threads(tmp_path: Path) -> None:
 
     def worker() -> None:
         try:
-            cache.put("k", [0.1, 0.2, 0.3], model="bge-m3")
+            cache.put("k", [0.1, 0.2, 0.3], model="custom-embed-v2")
             results["get"] = cache.get("k")
             results["count"] = cache.count()
         except Exception as exc:  # noqa: BLE001 — capture for assertion
@@ -260,7 +260,7 @@ def test_gemini_multimodal_embedding_model_detection() -> None:
     assert GeminiProvider.is_multimodal_embedding_model("gemini-embedding-2")
     assert GeminiProvider.is_multimodal_embedding_model("gemini-embedding-2-preview")
     assert not GeminiProvider.is_multimodal_embedding_model("gemini-embedding-001")
-    assert not GeminiProvider.is_multimodal_embedding_model("bge-m3")
+    assert not GeminiProvider.is_multimodal_embedding_model("custom-embed-v2")
     assert not GeminiProvider.is_multimodal_embedding_model("")
 
 
@@ -335,7 +335,7 @@ async def test_text_only_provider_has_no_image_support() -> None:
     provider = _FakeEmbedProvider()
     service = EmbeddingService(
         provider,
-        model="bge-m3",
+        model="custom-embed-v2",
         multimodal_enabled=True,
     )
     assert service.supports_image_embedding is False
@@ -344,7 +344,7 @@ async def test_text_only_provider_has_no_image_support() -> None:
 
 async def test_document_embedding_does_not_collide_on_shared_200_char_prefix() -> None:
     provider = _FakeEmbedProvider()
-    service = EmbeddingService(provider, model="bge-m3")
+    service = EmbeddingService(provider, model="custom-embed-v2")
     first = "a" * 200 + "-first-document"
     second = "a" * 200 + "-second-document"
 
@@ -422,12 +422,12 @@ def test_payload_decode_handles_json_and_blob_and_mixed() -> None:
 
 
 def test_split_l2_model_namespace_marks_legacy_rows() -> None:
-    base, namespace = split_l2_model_namespace("bge-m3#namespace=abc123def")
-    assert base == "bge-m3"
+    base, namespace = split_l2_model_namespace("custom-embed-v2#namespace=abc123def")
+    assert base == "custom-embed-v2"
     assert namespace == "abc123def"
-    assert split_l2_model_namespace("bge-m3") == ("bge-m3", None)
-    assert split_l2_model_namespace("bge-m3#dim=1024#namespace=xyz") == (
-        "bge-m3#dim=1024",
+    assert split_l2_model_namespace("custom-embed-v2") == ("custom-embed-v2", None)
+    assert split_l2_model_namespace("custom-embed-v2#dim=1024#namespace=xyz") == (
+        "custom-embed-v2#dim=1024",
         "xyz",
     )
 
@@ -436,7 +436,7 @@ def test_put_stores_versioned_blob_with_metadata(tmp_path: Path) -> None:
     cache = EmbeddingCache(tmp_path / "embedding-cache.db")
     cache.initialize()
 
-    cache.put("key", [0.1, 0.2, 0.3], model="bge-m3")
+    cache.put("key", [0.1, 0.2, 0.3], model="custom-embed-v2")
 
     row = cache.conn.execute(
         "SELECT vector, encoding, dimension, typeof(vector) FROM embedding_cache"
@@ -448,7 +448,7 @@ def test_put_stores_versioned_blob_with_metadata(tmp_path: Path) -> None:
     assert storage_type == "blob"
     assert isinstance(payload, bytes)
     assert decode_embedding_vector_blob(payload) == pytest.approx([0.1, 0.2, 0.3])
-    assert cache.get("key", model="bge-m3") == pytest.approx([0.1, 0.2, 0.3])
+    assert cache.get("key", model="custom-embed-v2") == pytest.approx([0.1, 0.2, 0.3])
 
 
 def test_legacy_json_row_remains_readable(tmp_path: Path) -> None:
@@ -456,11 +456,11 @@ def test_legacy_json_row_remains_readable(tmp_path: Path) -> None:
     cache.initialize()
     cache.conn.execute(
         "INSERT INTO embedding_cache (text_key, model, vector, encoding) VALUES (?, ?, ?, 0)",
-        ("legacy-key", "bge-m3", "[0.5, 0.6, 0.7]"),
+        ("legacy-key", "custom-embed-v2", "[0.5, 0.6, 0.7]"),
     )
     cache.conn.commit()
 
-    assert cache.get("legacy-key", model="bge-m3") == pytest.approx([0.5, 0.6, 0.7])
+    assert cache.get("legacy-key", model="custom-embed-v2") == pytest.approx([0.5, 0.6, 0.7])
 
 
 def test_schema_upgrade_from_v1_preserves_rows_as_legacy(tmp_path: Path) -> None:
@@ -859,7 +859,7 @@ async def test_embedding_service_enforces_byte_budget_via_write_cadence(
     provider = _FakeEmbedProvider(vector=[0.1] * 100)
     service = EmbeddingService(
         provider,
-        model="bge-m3",
+        model="custom-embed-v2",
         persistent_cache=cache,
         cache_max_bytes=1200,
         cache_high_watermark=0.9,
@@ -874,7 +874,7 @@ async def test_embedding_service_exposes_l2_cache_and_stats(tmp_path: Path) -> N
     cache = EmbeddingCache(tmp_path / "embedding-cache.db")
     cache.initialize()
     provider = _FakeEmbedProvider(vector=[0.1, 0.2, 0.3])
-    service = EmbeddingService(provider, model="bge-m3", persistent_cache=cache)
+    service = EmbeddingService(provider, model="custom-embed-v2", persistent_cache=cache)
 
     assert service.l2_cache is cache
     assert service.l2_cache_stats()["total_rows"] == 0
@@ -891,7 +891,7 @@ async def test_embedding_breaker_skips_dead_provider_after_repeated_failures() -
     provider = _FakeEmbedProvider(error=RuntimeError("ConnectError: localhost:11434"))
     service = EmbeddingService(
         provider,
-        model="bge-m3",
+        model="custom-embed-v2",
         breaker_failure_threshold=3,
         breaker_cooldown_seconds=60,
     )
@@ -912,7 +912,7 @@ async def test_embedding_breaker_reprobes_after_cooldown() -> None:
     provider = _FakeEmbedProvider(error=RuntimeError("ConnectError"))
     service = EmbeddingService(
         provider,
-        model="bge-m3",
+        model="custom-embed-v2",
         breaker_failure_threshold=2,
         breaker_cooldown_seconds=0.01,
     )
@@ -933,7 +933,7 @@ async def test_embedding_breaker_counts_empty_vectors_as_failures() -> None:
     provider = _FakeEmbedProvider(vector=[])
     service = EmbeddingService(
         provider,
-        model="bge-m3",
+        model="custom-embed-v2",
         breaker_failure_threshold=2,
         breaker_cooldown_seconds=60,
     )
@@ -956,7 +956,7 @@ async def test_embedding_breaker_resets_streak_after_text_embed_success() -> Non
     )
     service = EmbeddingService(
         provider,
-        model="bge-m3",
+        model="custom-embed-v2",
         breaker_failure_threshold=2,
         breaker_cooldown_seconds=60,
     )
@@ -981,7 +981,7 @@ async def test_embedding_breaker_resets_streak_after_document_embed_success() ->
     )
     service = EmbeddingService(
         provider,
-        model="bge-m3",
+        model="custom-embed-v2",
         breaker_failure_threshold=2,
         breaker_cooldown_seconds=60,
     )
@@ -1004,7 +1004,7 @@ async def test_embedding_breaker_resets_streak_after_probe_success() -> None:
     )
     service = EmbeddingService(
         provider,
-        model="bge-m3",
+        model="custom-embed-v2",
         breaker_failure_threshold=2,
         breaker_cooldown_seconds=60,
     )

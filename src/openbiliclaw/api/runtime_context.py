@@ -2878,9 +2878,9 @@ class RuntimeContext:
 
         v0.3.54+: production logs (2026-05-05) showed
         ``MMR embedding fetch: coverage=0/40`` for 31 minutes after
-        daemon start — Ollama was 502'ing during the prewarm window
+        daemon start — the embedding backend was 5xx'ing during the prewarm window
         and the single-shot startup task gave up. Loop with
-        exponential backoff so a slow Ollama warmup doesn't lock the
+        exponential backoff so a slow backend warmup doesn't lock the
         cache cold for half an hour. Stops after 5 attempts (≈31s)
         OR when prewarm returns >0 (i.e. some embeddings landed).
         Failures swallowed silently so pool MMR cache lazy-fills via
@@ -2892,7 +2892,7 @@ class RuntimeContext:
         warm yet (empty pool / no embedding service) — a benign cold
         start, not a failure — so we log it plainly and stop instead of
         burning 5 alarming "warmed=0 — retry" lines on every fresh deploy
-        (which read identically to a real Ollama outage). ``0`` with
+        (which read identically to a real backend outage). ``0`` with
         candidates present is the genuine "backend unreachable" case and
         keeps the retry-then-warn behaviour.
         """
@@ -2932,8 +2932,8 @@ class RuntimeContext:
             delay *= 2
         logger.warning(
             "Startup prewarm_pool_mmr_embeddings gave up after retries — the embedding "
-            "backend stayed unreachable (candidates were present but none embedded; "
-            "e.g. Ollama down). MMR diversity degrades; cache will lazy-fill if it recovers"
+            "backend stayed unreachable (candidates were present but none embedded) "
+            "MMR diversity degrades; cache will lazy-fill if it recovers"
         )
 
 

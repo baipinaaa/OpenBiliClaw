@@ -464,8 +464,6 @@ def _dirty_paths_besides_uv_lock(porcelain: str) -> list[str]:
             path = path.rsplit(" -> ", maxsplit=1)[1].strip().strip('"')
         if path == "uv.lock":
             continue
-        if path == "ollama-models" or path.startswith("ollama-models/"):
-            continue
         dirty.append(path)
     return dirty
 
@@ -483,8 +481,6 @@ def _staged_paths_besides_uv_lock(porcelain: str) -> list[str]:
         if " -> " in path:
             path = path.rsplit(" -> ", maxsplit=1)[1].strip().strip('"')
         if path == "uv.lock":
-            continue
-        if path == "ollama-models" or path.startswith("ollama-models/"):
             continue
         staged.append(path)
     return staged

@@ -23,8 +23,8 @@ def db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Database:
     monkeypatch.setenv("OPENBILICLAW_PROJECT_ROOT", str(project_root))
     config = Config()
     config.scheduler.enabled = False
-    config.llm.default_provider = "ollama"
-    config.llm.ollama.model = "llama3"
+    config.llm.default_provider = "deepseek"
+    config.llm.deepseek.api_key = "test-key"
     save_config(config, project_root / "config.toml")
     database = Database(tmp_path / "identity-pipeline.db")
     database.initialize()

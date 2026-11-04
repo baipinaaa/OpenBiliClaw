@@ -188,7 +188,10 @@ def _build_platform_app(config_failures: int = 0) -> Iterator[tuple[str, Platfor
                         "config": {
                             "sources": ENABLED_SOURCES,
                             "scheduler": {},
-                            "llm": {"default_provider": "ollama", "ollama": {}},
+                            "llm": {
+                                "default_provider": "deepseek",
+                                "deepseek": {"api_key": "test-key"},
+                            },
                         }
                     },
                 )

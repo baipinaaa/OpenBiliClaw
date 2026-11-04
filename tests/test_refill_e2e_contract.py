@@ -140,8 +140,8 @@ def test_live_refill_uses_explicit_config_and_provider_without_mutating_loaded_c
 ) -> None:
     loaded = Config(
         llm=LLMConfig(
-            default_provider="ollama",
-            ollama=LLMProviderConfig(model="unit-test-model"),
+            default_provider="openai",
+            openai=LLMProviderConfig(api_key="test-key", model="unit-test-model"),
             openai_compatible=LLMProviderConfig(
                 api_key="test-compatible-key",
                 base_url="https://compatible.example/v1",
@@ -162,30 +162,29 @@ def test_live_refill_uses_explicit_config_and_provider_without_mutating_loaded_c
     config, registry = live_refill._load_live_config_and_registry()
 
     assert paths == ["/tmp/live-refill.toml"]
-    assert loaded.llm.default_provider == "ollama"
+    assert loaded.llm.default_provider == "openai"
     assert config.llm.default_provider == "openai_compatible"
     assert registry.default_provider == "openai_compatible"
 
 
-def test_openclaw_live_config_disables_embedding_and_ollama_without_mutating_input(
+def test_openclaw_live_config_disables_embedding_without_mutating_input(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     loaded = Config(
         llm=LLMConfig(
-            default_provider="ollama",
-            fallback_provider="ollama",
-            ollama=LLMProviderConfig(
-                api_key="original-ollama-key",
-                base_url="http://127.0.0.1:11434/v1",
-                model="original-local-model",
+            default_provider="gemini",
+            fallback_provider="gemini",
+            gemini=LLMProviderConfig(
+                api_key="original-gemini-key",
+                model="original-remote-model",
             ),
             embedding=EmbeddingConfig(
-                provider="ollama",
-                model="bge-m3",
+                provider="gemini",
+                model="gemini-embedding-001",
                 api_key="original-embedding-key",
-                base_url="http://127.0.0.1:11434/v1",
+                base_url="https://generativelanguage.googleapis.com/v1beta",
                 fallback_enabled=True,
-                fallback_provider="ollama",
+                fallback_provider="gemini",
             ),
             openai_compatible=LLMProviderConfig(
                 api_key="test-compatible-key",
@@ -200,16 +199,13 @@ def test_openclaw_live_config_disables_embedding_and_ollama_without_mutating_inp
 
     config, registry = live_refill._load_live_config_and_registry(disable_embedding=True)
 
-    assert loaded.llm.default_provider == "ollama"
-    assert loaded.llm.fallback_provider == "ollama"
-    assert loaded.llm.ollama.model == "original-local-model"
-    assert loaded.llm.embedding.provider == "ollama"
-    assert loaded.llm.embedding.fallback_provider == "ollama"
+    assert loaded.llm.default_provider == "gemini"
+    assert loaded.llm.fallback_provider == "gemini"
+    assert loaded.llm.gemini.model == "original-remote-model"
+    assert loaded.llm.embedding.provider == "gemini"
+    assert loaded.llm.embedding.fallback_provider == "gemini"
     assert config.llm.default_provider == "openai_compatible"
     assert config.llm.fallback_provider == ""
-    assert config.llm.ollama.api_key == ""
-    assert config.llm.ollama.base_url == ""
-    assert config.llm.ollama.model == ""
     assert config.llm.embedding.provider == ""
     assert config.llm.embedding.model == ""
     assert config.llm.embedding.api_key == ""
@@ -217,7 +213,6 @@ def test_openclaw_live_config_disables_embedding_and_ollama_without_mutating_inp
     assert config.llm.embedding.fallback_enabled is False
     assert config.llm.embedding.fallback_provider == ""
     assert registry.default_provider == "openai_compatible"
-    assert "ollama" not in registry.available_providers
 
 
 def test_live_refill_provider_override_wins_over_evaluation_module_override(
@@ -231,11 +226,11 @@ def test_live_refill_provider_override_wins_over_evaluation_module_override(
                 base_url="https://compatible.example/v1",
                 model="test-compatible-model",
             ),
-            ollama=LLMProviderConfig(model="old-local-model"),
-            soul=ModuleLLMConfig(provider="ollama", model="old-soul-model"),
-            discovery=ModuleLLMConfig(provider="ollama", model="old-discovery-model"),
-            recommendation=ModuleLLMConfig(provider="ollama", model="old-recommendation-model"),
-            evaluation=ModuleLLMConfig(provider="ollama", model="old-evaluation-model"),
+            gemini=LLMProviderConfig(model="old-remote-model"),
+            soul=ModuleLLMConfig(provider="gemini", model="old-soul-model"),
+            discovery=ModuleLLMConfig(provider="gemini", model="old-discovery-model"),
+            recommendation=ModuleLLMConfig(provider="gemini", model="old-recommendation-model"),
+            evaluation=ModuleLLMConfig(provider="gemini", model="old-evaluation-model"),
         )
     )
     monkeypatch.delenv("OPENBILICLAW_REFILL_CONFIG", raising=False)
@@ -246,7 +241,7 @@ def test_live_refill_provider_override_wins_over_evaluation_module_override(
     overrides = module_overrides_from_config(config)
     service = LLMService(registry=registry, memory=None, module_overrides=overrides)  # type: ignore[arg-type]
 
-    assert loaded.llm.evaluation.provider == "ollama"
+    assert loaded.llm.evaluation.provider == "gemini"
     assert set(overrides) == {"soul", "discovery", "recommendation", "evaluation"}
     assert {name: override.provider for name, override in overrides.items()} == {
         "soul": "openai_compatible",
@@ -266,8 +261,8 @@ def test_live_refill_fails_when_explicit_provider_is_not_registered(
 ) -> None:
     loaded = Config(
         llm=LLMConfig(
-            default_provider="ollama",
-            ollama=LLMProviderConfig(model="unit-test-model"),
+            default_provider="openai",
+            openai=LLMProviderConfig(api_key="test-key", model="unit-test-model"),
         )
     )
     monkeypatch.delenv("OPENBILICLAW_REFILL_CONFIG", raising=False)
@@ -283,8 +278,8 @@ def test_live_refill_without_controls_keeps_zero_argument_config_loading(
 ) -> None:
     loaded = Config(
         llm=LLMConfig(
-            default_provider="ollama",
-            ollama=LLMProviderConfig(model="unit-test-model"),
+            default_provider="openai",
+            openai=LLMProviderConfig(api_key="test-key", model="unit-test-model"),
         )
     )
     calls: list[tuple[object, ...]] = []
@@ -301,7 +296,7 @@ def test_live_refill_without_controls_keeps_zero_argument_config_loading(
 
     assert calls == [()]
     assert config is loaded
-    assert registry.default_provider == "ollama"
+    assert registry.default_provider == "openai"
 
 
 def test_live_refill_integration_remains_explicitly_opt_in() -> None:

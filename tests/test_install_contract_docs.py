@@ -119,7 +119,7 @@ def test_docker_docs_promote_human_one_line_installer_contract() -> None:
         "human Docker one-line installer asks language first, then the same LLM provider"
         in docker_doc
     )
-    assert "http://ollama:11434/v1" in docker_doc
+    assert "ollama" not in docker_doc.lower()
     assert "127.0.0.1:8420/api/bilibili/cookie" in docker_doc
     assert "init` 是 v0.3.20+ 的交互式向导" not in docker_doc
     assert "在 Docker 里跑时也会弹一个交互式问题" not in docker_doc
@@ -163,7 +163,7 @@ def test_agent_install_llm_menu_numbering_matches_current_options() -> None:
     assert "Present **ten top-level options**" in doc
     assert "Present **three top-level options**" not in doc
     assert 'is folded into "Advanced" further down' not in doc
-    assert "**Hardware caveat for local Ollama**" in doc
+    assert "**No local model runtime**" in doc
     assert (
         "#### Options 3-10 (OpenAI 官方 / Gemini / Claude / OpenRouter / "
         "OrcaRouter / Requesty / API Route / Cheaper Inference)"
@@ -180,10 +180,10 @@ def test_cli_module_docs_show_current_init_llm_menu() -> None:
     assert "3   OpenAI 官方" in doc
     assert "Tip:不确定就选 1 (DeepSeek)" in doc
     assert "请输入序号或名称（默认 1=DeepSeek） [1]:" in doc
-    assert "1   本地 Ollama bge-m3 ★默认推荐" in doc
-    assert "3   暂不启用 embedding" in doc
+    assert "1   云端 Gemini embedding ★默认推荐" in doc
+    assert "2   暂不启用 embedding" in doc
     assert "不会跟随主 LLM" in doc
-    assert "| 1 | 本地 Ollama，自动探测 + 拉取 `bge-m3` |" in doc
+    assert "| 1 | 云端 Gemini embedding，可复用已有 Gemini Key |" in doc
     assert "Ollama 排第一" not in doc
     assert "1) 跟随你刚才选的 LLM" not in doc
     assert "跟随主 provider（默认）" not in doc
@@ -210,27 +210,6 @@ def test_backend_tag_workflow_only_updates_aggregate_release() -> None:
     assert "维护者通道仍保留 `extension-v*` / `desktop-v*` / `backend-v*`" in docs_index
     assert "后端源码更新仍只通过 `backend-v*` tag 标记" in extension_doc
     assert "桌面安装包仍由 `desktop-v*` workflow 构建" in extension_doc
-
-
-def test_ollama_bundled_dockerfile_retries_model_pull_before_verification() -> None:
-    dockerfile = _read("docker/ollama-bundled.Dockerfile")
-    run_block = dockerfile.split("RUN set -eux;", maxsplit=1)[1].split(
-        "COPY docker/seed-bge-m3.sh", maxsplit=1
-    )[0]
-
-    assert "start_ollama()" in run_block
-    assert 'ollama serve & pid="$!"' in run_block
-    assert 'model_blob="/root/.ollama/models/blobs/sha256-${BGE_M3_MODEL_DIGEST}"' in run_block
-    assert 'until start_ollama && ollama pull bge-m3 && [ -f "$model_blob" ]; do' in run_block
-    assert "attempts=$((attempts + 1))" in run_block
-    assert "find /root/.ollama/models" in run_block
-
-    between_pull_and_verify = run_block[
-        run_block.index("ollama pull bge-m3") : run_block.index(
-            "cp -a /root/.ollama/models/blobs /opt/bge-m3-seed/blobs"
-        )
-    ]
-    assert 'kill "$pid"' not in between_pull_and_verify
 
 
 def test_installers_can_clone_code_into_existing_packaged_data_root() -> None:

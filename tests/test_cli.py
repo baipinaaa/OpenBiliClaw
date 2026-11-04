@@ -268,10 +268,6 @@ api_key = ""
 model = "deepseek-chat"
 base_url = "https://api.deepseek.com"
 
-[llm.ollama]
-model = "llama3"
-base_url = "http://localhost:11434"
-
 [bilibili]
 auth_method = "cookie"
 cookie = ""
@@ -957,8 +953,8 @@ def test_config_export_legacy_refuses_overwrite_without_force_and_active_path(
     config_module.save_config(
         config_module.Config(
             llm=config_module.LLMConfig(
-                default_provider="ollama",
-                ollama=config_module.LLMProviderConfig(model="qwen2.5:7b"),
+                default_provider="openai",
+                openai=config_module.LLMProviderConfig(api_key="test-key"),
             )
         ),
         config_path,
@@ -1040,7 +1036,7 @@ def test_config_show_displays_registered_providers(
 ) -> None:
     class FakeRegistry:
         default_provider = "claude"
-        available_providers = ["claude", "ollama"]
+        available_providers = ["claude", "gemini"]
 
     monkeypatch.setattr(cli_module, "_build_registry", lambda: FakeRegistry())
     monkeypatch.setattr(cli_module, "_initialize_logging", lambda log_level_override=None: None)
@@ -1049,7 +1045,7 @@ def test_config_show_displays_registered_providers(
 
     assert result.exit_code == 0
     assert "已注册 Provider" in result.stdout
-    assert "claude, ollama" in result.stdout
+    assert "claude, gemini" in result.stdout
     assert "最终默认 Provider" in result.stdout
     assert "claude" in result.stdout
 
@@ -1154,7 +1150,7 @@ def test_health_check_reports_provider_statuses(
         async def health_check_all(self) -> dict[str, FakeResult]:
             return {
                 "openai": FakeResult(True, True),
-                "ollama": FakeResult(False, False, "connection refused"),
+                "gemini": FakeResult(False, False, "connection refused"),
             }
 
     monkeypatch.setattr(cli_module, "_build_registry", lambda: FakeRegistry())
@@ -1554,7 +1550,6 @@ def test_start_creates_backup_before_guided_init_opens_runtime_database(
         lambda: events.append("guided-init") or True,
     )
     monkeypatch.setattr(cli_module, "_warn_if_pause_on_disconnect_requires_presence", lambda: None)
-    monkeypatch.setattr(cli_module, "_preflight_loopback_ollama", lambda _cfg: None)
     monkeypatch.setattr(cli_module, "_self_heal_autostart_registration", lambda _cfg: None)
     monkeypatch.setattr(
         cli_module,
@@ -1617,79 +1612,6 @@ def test_start_warns_when_pause_on_disconnect_requires_extension_presence(
     assert called == {"host": "0.0.0.0", "port": 8420}
 
 
-def test_start_preflight_starts_default_loopback_ollama(
-    monkeypatch: pytest.MonkeyPatch, runner: CliRunner
-) -> None:
-    cfg = config_module.Config()
-    probes: list[str] = []
-    starts: list[str] = []
-
-    monkeypatch.setattr(config_module, "load_config", lambda: cfg, raising=False)
-    monkeypatch.setattr(cli_module, "_ensure_runtime_database_healthy", lambda: None)
-    monkeypatch.setattr(cli_module, "_maybe_create_runtime_database_backup", lambda: None)
-    monkeypatch.setattr(cli_module, "_run_api_server", lambda **kwargs: None, raising=False)
-    monkeypatch.setattr(cli_module, "_initialize_logging", lambda log_level_override=None: None)
-    monkeypatch.setattr(cli_module, "ollama_required", lambda loaded_cfg: True, raising=False)
-    monkeypatch.setattr(
-        cli_module,
-        "effective_ollama_endpoint",
-        lambda loaded_cfg: "http://localhost:11434",
-        raising=False,
-    )
-    monkeypatch.setattr(cli_module, "is_loopback", lambda endpoint: True, raising=False)
-    monkeypatch.setattr(
-        cli_module,
-        "_ollama_is_running",
-        lambda host="http://localhost:11434": probes.append(host) or False,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        cli_module,
-        "_ollama_start_serve_background",
-        lambda: starts.append("serve") or True,
-        raising=False,
-    )
-
-    result = runner.invoke(app, ["start"])
-
-    assert result.exit_code == 0
-    assert probes == ["http://localhost:11434"]
-    assert starts == ["serve"]
-
-
-def test_start_preflight_custom_loopback_port_does_not_serve(
-    monkeypatch: pytest.MonkeyPatch, runner: CliRunner
-) -> None:
-    cfg = config_module.Config()
-    starts: list[str] = []
-
-    monkeypatch.setattr(config_module, "load_config", lambda: cfg, raising=False)
-    monkeypatch.setattr(cli_module, "_ensure_runtime_database_healthy", lambda: None)
-    monkeypatch.setattr(cli_module, "_maybe_create_runtime_database_backup", lambda: None)
-    monkeypatch.setattr(cli_module, "_run_api_server", lambda **kwargs: None, raising=False)
-    monkeypatch.setattr(cli_module, "_initialize_logging", lambda log_level_override=None: None)
-    monkeypatch.setattr(cli_module, "ollama_required", lambda loaded_cfg: True, raising=False)
-    monkeypatch.setattr(
-        cli_module,
-        "effective_ollama_endpoint",
-        lambda loaded_cfg: "http://127.0.0.1:9999",
-        raising=False,
-    )
-    monkeypatch.setattr(cli_module, "is_loopback", lambda endpoint: True, raising=False)
-    monkeypatch.setattr(cli_module, "_ollama_is_running", lambda host: False, raising=False)
-    monkeypatch.setattr(
-        cli_module,
-        "_ollama_start_serve_background",
-        lambda: starts.append("serve") or True,
-        raising=False,
-    )
-
-    result = runner.invoke(app, ["start"])
-
-    assert result.exit_code == 0
-    assert starts == []
-
-
 def test_start_self_heal_skips_autostart_register_when_env_managed(
     monkeypatch: pytest.MonkeyPatch, runner: CliRunner
 ) -> None:
@@ -1706,7 +1628,6 @@ def test_start_self_heal_skips_autostart_register_when_env_managed(
     monkeypatch.setattr(cli_module, "_maybe_create_runtime_database_backup", lambda: None)
     monkeypatch.setattr(cli_module, "_run_api_server", lambda **kwargs: None, raising=False)
     monkeypatch.setattr(cli_module, "_initialize_logging", lambda log_level_override=None: None)
-    monkeypatch.setattr(cli_module, "ollama_required", lambda loaded_cfg: False, raising=False)
     monkeypatch.setattr(
         autostart,
         "status",
@@ -1737,7 +1658,6 @@ def test_start_self_heals_missing_autostart_registration(
     monkeypatch.setattr(cli_module, "_maybe_create_runtime_database_backup", lambda: None)
     monkeypatch.setattr(cli_module, "_run_api_server", lambda **kwargs: None, raising=False)
     monkeypatch.setattr(cli_module, "_initialize_logging", lambda log_level_override=None: None)
-    monkeypatch.setattr(cli_module, "ollama_required", lambda loaded_cfg: False, raising=False)
     monkeypatch.setattr(
         autostart,
         "status",
@@ -1767,7 +1687,6 @@ def test_start_self_heals_orphan_autostart_registration(
     monkeypatch.setattr(cli_module, "_maybe_create_runtime_database_backup", lambda: None)
     monkeypatch.setattr(cli_module, "_run_api_server", lambda **kwargs: None, raising=False)
     monkeypatch.setattr(cli_module, "_initialize_logging", lambda log_level_override=None: None)
-    monkeypatch.setattr(cli_module, "ollama_required", lambda loaded_cfg: False, raising=False)
     monkeypatch.setattr(
         autostart,
         "status",
@@ -2025,10 +1944,10 @@ def test_embedding_cache_stats_reports_diagnostics(
 
     cache = EmbeddingCache(tmp_path / "embedding_cache.db")
     cache.initialize()
-    cache.put("k1", [0.1, 0.2, 0.3], model="bge-m3#namespace=abc123")
+    cache.put("k1", [0.1, 0.2, 0.3], model="text-embedding-3-small#namespace=abc123")
     cache.conn.execute(
         "INSERT INTO embedding_cache (text_key, model, vector, encoding) "
-        "VALUES ('k2', 'bge-m3', ?, 0)",
+        "VALUES ('k2', 'text-embedding-3-small', ?, 0)",
         ("[0.4, 0.5, 0.6]",),
     )
     cache.conn.commit()
@@ -2038,7 +1957,7 @@ def test_embedding_cache_stats_reports_diagnostics(
 
     assert result.exit_code == 0, result.output
     assert "Embedding L2 缓存诊断" in result.stdout
-    assert "bge-m3#namespace=abc123" in result.stdout
+    assert "text-embedding-3-small#namespace=abc123" in result.stdout
     assert "legacy" in result.stdout
     assert "总行数" in result.stdout
 
@@ -2063,7 +1982,7 @@ def test_embedding_cache_clean_dry_run_then_apply(
     cache.put("k1", [0.1, 0.2, 0.3], model="m#namespace=live")
     cache.conn.execute(
         "INSERT INTO embedding_cache (text_key, model, vector, encoding) "
-        "VALUES ('k2', 'bge-m3', ?, 0)",
+        "VALUES ('k2', 'text-embedding-3-small', ?, 0)",
         ("[0.4, 0.5, 0.6]",),
     )
     cache.conn.commit()
@@ -4138,7 +4057,7 @@ def test_init_guides_missing_runtime_config_interactively(
     #   1. menu choice: "gemini"
     #   2. API key
     #   3. model (accept default)
-    #   4. embedding choice "3" (disable embedding; avoids host-dependent Ollama prompts)
+    #   4. embedding choice "2" (disable embedding; no host-dependent prompts)
     #   5. "n" — skip module overrides
     #   6. "y" — allow LAN access
     #   7-9. "" — accept Bili history/favorite/follow init limits
@@ -6008,91 +5927,8 @@ def test_init_reports_partial_success_when_discovery_fails(
 
 
 # ---------------------------------------------------------------------------
-# Local Ollama embedding wizard helpers
+# Embedding wizard helpers
 # ---------------------------------------------------------------------------
-
-
-def test_ollama_is_running_returns_true_on_200(monkeypatch: pytest.MonkeyPatch) -> None:
-    import httpx
-
-    class _FakeResp:
-        status_code = 200
-
-    class _FakeClient:
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            pass
-
-        def __enter__(self) -> "_FakeClient":
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            return None
-
-        def get(self, url: str) -> _FakeResp:
-            assert url.endswith("/api/version")
-            return _FakeResp()
-
-    monkeypatch.setattr(httpx, "Client", _FakeClient)
-    assert cli_module._ollama_is_running() is True
-
-
-def test_ollama_is_running_returns_false_when_unreachable(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import httpx
-
-    class _FailingClient:
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            pass
-
-        def __enter__(self) -> "_FailingClient":
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            return None
-
-        def get(self, url: str) -> object:
-            raise httpx.ConnectError("connection refused")
-
-    monkeypatch.setattr(httpx, "Client", _FailingClient)
-    assert cli_module._ollama_is_running() is False
-
-
-def test_ollama_has_model_matches_tagged_and_untagged(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import httpx
-
-    class _FakeResp:
-        status_code = 200
-
-        def raise_for_status(self) -> None:
-            return
-
-        def json(self) -> dict[str, object]:
-            return {
-                "models": [
-                    {"name": "llama3:latest"},
-                    {"name": "bge-m3:latest"},
-                ]
-            }
-
-    class _FakeClient:
-        def __init__(self, *args: object, **kwargs: object) -> None:
-            pass
-
-        def __enter__(self) -> "_FakeClient":
-            return self
-
-        def __exit__(self, *args: object) -> None:
-            return None
-
-        def get(self, url: str) -> _FakeResp:
-            return _FakeResp()
-
-    monkeypatch.setattr(httpx, "Client", _FakeClient)
-    assert cli_module._ollama_has_model("bge-m3") is True
-    assert cli_module._ollama_has_model("nomic-embed-text") is False
 
 
 def test_save_embedding_config_writes_to_toml(
@@ -6118,12 +5954,12 @@ def test_save_embedding_config_writes_to_toml(
     monkeypatch.setenv("OPENBILICLAW_PROJECT_ROOT", str(tmp_path))
     monkeypatch.chdir(tmp_path)
 
-    cli_module._save_embedding_config(provider="ollama", model="bge-m3")
+    cli_module._save_embedding_config(provider="gemini", model="gemini-embedding-001")
 
     reloaded, _ = load_config_with_diagnostics()
-    assert reloaded.llm.embedding.provider == "ollama"
-    assert reloaded.llm.embedding.model == "bge-m3"
-    assert reloaded.llm.embedding.base_url == "http://127.0.0.1:11434/v1"
+    assert reloaded.llm.embedding.provider == "gemini"
+    assert reloaded.llm.embedding.model == "gemini-embedding-001"
+    assert reloaded.llm.embedding.base_url == ""
 
 
 def test_save_embedding_config_custom_openai_compat(
@@ -6150,27 +5986,27 @@ def test_save_embedding_config_custom_openai_compat(
 
     cli_module._save_embedding_config(
         provider="openai",
-        model="bge-m3",
+        model="text-embedding-3-small",
         base_url="http://localhost:8000/v1",
         api_key="sk-local",
     )
 
     reloaded, _ = load_config_with_diagnostics()
     assert reloaded.llm.embedding.provider == "openai"
-    assert reloaded.llm.embedding.model == "bge-m3"
+    assert reloaded.llm.embedding.model == "text-embedding-3-small"
     assert reloaded.llm.embedding.base_url == "http://localhost:8000/v1"
     assert reloaded.llm.embedding.api_key == "sk-local"
 
 
-def test_interactive_embedding_setup_option4_allows_empty_no_auth_key(
+def test_interactive_embedding_setup_option3_allows_empty_no_auth_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Option 4 tells users a no-auth gateway may leave the API key blank.
+    """Option 3 tells users a no-auth gateway may leave the API key blank.
 
     The wizard must pass that empty key through (the registry injects an
     internal placeholder for the OpenAI SDK) instead of inventing a fake key
     or writing a config that the backend silently refuses to build."""
-    answers = iter(["4", "http://127.0.0.1:8000/v1", "", "bge-m3"])
+    answers = iter(["3", "http://127.0.0.1:8000/v1", "", "text-embedding-3-small"])
     monkeypatch.setattr(typer, "prompt", lambda *args, **kwargs: next(answers))
     captured: dict[str, object] = {}
     monkeypatch.setattr(
@@ -6183,19 +6019,19 @@ def test_interactive_embedding_setup_option4_allows_empty_no_auth_key(
 
     assert captured == {
         "provider": "openai",
-        "model": "bge-m3",
+        "model": "text-embedding-3-small",
         "base_url": "http://127.0.0.1:8000/v1",
         "api_key": "",
     }
 
 
-def test_interactive_embedding_setup_option4_rejects_empty_base_url(
+def test_interactive_embedding_setup_option3_rejects_empty_base_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Option 4 is the custom-endpoint branch, so an empty base_url cannot
+    """Option 3 is the custom-endpoint branch, so an empty base_url cannot
     produce a usable provider. Refuse to save instead of writing a config
     that silently disables embedding."""
-    answers = iter(["4", "", "sk-ignored", "bge-m3"])
+    answers = iter(["3", "", "sk-ignored", "text-embedding-3-small"])
     monkeypatch.setattr(typer, "prompt", lambda *args, **kwargs: next(answers))
     saved: list[dict[str, object]] = []
     monkeypatch.setattr(

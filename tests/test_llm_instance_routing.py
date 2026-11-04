@@ -162,10 +162,6 @@ def test_legacy_projection_omits_unused_remote_template_blocks() -> None:
                 model="deepseek-v4-flash",
                 base_url="https://api.deepseek.com",
             ),
-            ollama=LLMProviderConfig(
-                model="qwen2.5:7b",
-                base_url="http://127.0.0.1:11434/v1",
-            ),
             openai_compatible=LLMProviderConfig(
                 api_key="sk-relay",
                 model="deepseek-v4-flash",
@@ -176,7 +172,7 @@ def test_legacy_projection_omits_unused_remote_template_blocks() -> None:
 
     instances = effective_llm_instances(config.llm)
 
-    assert list(instances) == ["deepseek", "ollama", "openai_compatible"]
+    assert list(instances) == ["deepseek", "openai_compatible"]
     assert all(instance.enabled for instance in instances.values())
     assert effective_llm_default_chain(config.llm) == ["openai_compatible"]
 
@@ -349,8 +345,8 @@ def test_migration_backup_is_not_created_for_fresh_native_or_legacy_save(
     assert not llm_migration_backup_path(native_path).exists()
 
     legacy_path = tmp_path / "legacy.toml"
-    legacy_path.write_text('[llm]\ndefault_provider = "ollama"\n', encoding="utf-8")
-    save_config(Config(llm=LLMConfig(default_provider="ollama")), legacy_path)
+    legacy_path.write_text('[llm]\ndefault_provider = "deepseek"\n', encoding="utf-8")
+    save_config(Config(llm=LLMConfig(default_provider="deepseek")), legacy_path)
     assert not llm_migration_backup_path(legacy_path).exists()
 
 
@@ -426,8 +422,8 @@ def test_native_config_projects_to_previous_schema_with_explicit_loss_report(
 def test_legacy_projection_is_noop_and_native_export_requires_a_usable_chain() -> None:
     legacy = Config(
         llm=LLMConfig(
-            default_provider="ollama",
-            ollama=LLMProviderConfig(model="qwen2.5:7b"),
+            default_provider="openai",
+            openai=LLMProviderConfig(api_key="test-key"),
         )
     )
 

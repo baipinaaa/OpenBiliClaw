@@ -30,17 +30,18 @@ def _initial_config() -> dict[str, Any]:
     return {
         "language": "zh",
         "llm": {
-            "default_provider": "ollama",
-            "default_chain": ["ollama"],
+            "default_provider": "deepseek",
+            "default_chain": ["deepseek"],
             "instances": {
-                "ollama": {
-                    "provider": "ollama",
+                "gateway": {
+                    "provider": "openai_compatible",
                     "enabled": True,
-                    "model": "qwen3:8b",
+                    "model": "qwen3-8b",
+                    "base_url": "http://127.0.0.1:8000/v1",
                 }
             },
-            "ollama": {"model": "qwen3:8b"},
-            "embedding": {"provider": "ollama", "model": "bge-m3"},
+            "openai_compatible": {"model": "qwen3-8b", "base_url": "http://127.0.0.1:8000/v1"},
+            "embedding": {"provider": "gemini", "model": "gemini-embedding-001"},
         },
         "sources": {"bilibili": {"enabled": True}},
         "discovery": {

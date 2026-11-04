@@ -227,7 +227,6 @@ from openbiliclaw.recommendation_runtime import (
     RECOMMENDATION_SOCK_ENV,
     recommendation_transport_enabled,
 )
-from openbiliclaw.runtime import embedding_progress
 from openbiliclaw.runtime.dialogue_reply_scheduler import (
     DialogueExecutionCoordinator,
     DialogueLeaseTimeoutError,
@@ -311,11 +310,9 @@ class _GuidedInitTimeoutKwargs(TypedDict, total=False):
     discovery_timeout_seconds: float
 
 
-# A local Ollama chat probe can spend ~31 seconds in its documented cold-load
-# retry window before the model answers. The previous 30-second API cap killed
-# that legitimate retry at the boundary and made the first settings-page test
-# fail while an immediate retry passed. Keep a finite control-plane budget, but
-# leave enough headroom for cold local providers.
+# Control-plane ceiling for provider round-trips (health probes, settings
+# tests). Keep a finite budget so a hung remote endpoint cannot block the
+# API, but leave headroom for slow first-byte responses.
 _CONFIG_LLM_PROBE_MAX_TIMEOUT_SECONDS = 120.0
 
 
@@ -597,12 +594,9 @@ async def _run_init_heartbeat(
 
 # /api/health embedding readiness: cache the raw live-probe outcome so Docker
 # healthchecks and popup re-polls don't hit the embedding provider on every
-# call. Success caches for 30s; failure/timeout for 8s so a freshly-fixed or
-# just-finished cold load greens quickly. The probe itself is capped at 15s,
-# but local bge-m3 cold loads were observed at 16-29s on 2026-07-11. Ordinary
-# health therefore treats only a loopback-Ollama timeout as cold-loading and
-# optimistically available; guided init remains strict until a real vector
-# succeeds. Explicit False/errors still fail everywhere.
+# call. Success caches for 30s; failure/timeout for 8s so a freshly-fixed
+# provider greens quickly. The probe itself is capped at 15s. Explicit
+# False/errors fail everywhere.
 _EMBEDDING_READY_TTL_SECONDS = 30.0
 _EMBEDDING_FAIL_TTL_SECONDS = 8.0
 _EMBEDDING_PROBE_TIMEOUT_SECONDS = 15.0
@@ -2938,7 +2932,7 @@ def create_app(
             # database, which is all these handlers touch). Blocking them made
             # the settings 平台源 tab and the embedding banner fail with
             # misleading "backend unavailable" copy while degraded, even though
-            # fixing platform logins / pulling bge-m3 is exactly what a user
+            # fixing platform logins is exactly what a user
             # can usefully do while repairing the LLM config.
             or path == "/api/sources/status"
             or (path.startswith("/api/sources/") and path.endswith("/verify"))
@@ -5544,10 +5538,9 @@ def create_app(
     _embedding_ready_checked_at = float("-inf")
     _embedding_ready_lock = asyncio.Lock()
     # Classified not-ready cause (v0.3.155+), cached on the same cadence so
-    # init-status polls don't re-diagnose Ollama on every request.
+    # init-status polls don't re-diagnose the provider on every request.
     _embedding_diag_value: tuple[str, str] = ("ok", "")
     _embedding_diag_checked_at = float("-inf")
-    _embedding_diag_lock = asyncio.Lock()
 
     def _expire_embedding_ready_cache() -> None:
         """Force the next readiness/diagnosis check to re-probe immediately."""
@@ -5555,38 +5548,14 @@ def create_app(
         _embedding_ready_checked_at = float("-inf")
         _embedding_diag_checked_at = float("-inf")
 
-    def _embedding_ollama_target() -> tuple[str, str]:
-        """(base_url, model) the embedding path would use for Ollama.
-
-        Mirrors registry defaults: empty base_url → local daemon, empty
-        model → bge-m3.
-        """
-        emb = getattr(getattr(getattr(ctx, "config", None), "llm", None), "embedding", None)
-        base_url = str(getattr(emb, "base_url", "") or "").strip() or "http://127.0.0.1:11434/v1"
-        model = str(getattr(emb, "model", "") or "").strip() or "bge-m3"
-        return base_url, model
-
     def _embedding_probe_ttl(outcome: _EmbeddingProbeOutcome) -> float:
         return _EMBEDDING_READY_TTL_SECONDS if outcome == "ready" else _EMBEDDING_FAIL_TTL_SECONDS
 
     def _embedding_probe_result(outcome: _EmbeddingProbeOutcome, *, strict: bool) -> bool:
-        if outcome == "ready":
-            return True
-        if outcome != "timed_out" or strict:
-            return False
-        emb = getattr(getattr(getattr(ctx, "config", None), "llm", None), "embedding", None)
-        provider = str(getattr(emb, "provider", "") or "").strip().lower()
-        if provider != "ollama":
-            return False
-        from openbiliclaw.llm.ollama_embedding_runtime import cpu_fallback_active
-        from openbiliclaw.runtime.ollama_supervisor import is_loopback
-
-        base_url, model = _embedding_ollama_target()
-        # Once an actual runner failure forced CPU, a timeout is no longer
-        # evidence of an ordinary cold load. Require a real successful probe.
-        if cpu_fallback_active(base_url, model):
-            return False
-        return is_loopback(base_url)
+        # Remote-only deployments: readiness is only ever the real probe
+        # outcome; a timeout is never treated as an optimistic cold load.
+        del strict
+        return outcome == "ready"
 
     def _peek_embedding_ready(*, strict: bool = False) -> bool:
         """Read the last embedding outcome without starting provider I/O.
@@ -5607,21 +5576,13 @@ def create_app(
         """Classify why embedding is not ready (``("ok", "")`` when it is).
 
         Cheap cases (disabled / misconfigured) are answered from config
-        alone; the Ollama case runs a real classification (is the daemon
-        up / is the model installed / does it load) behind a TTL cache.
-        Non-Ollama providers get a generic ``provider_error`` — their
-        failure detail already lands in logs and re-probing a cloud
-        provider from a poll loop would burn quota.
+        alone; otherwise a non-ready embedding reports a generic
+        ``provider_error`` — the failure detail already lands in logs and
+        re-probing a remote provider from a poll loop would burn quota.
         """
         nonlocal _embedding_diag_value, _embedding_diag_checked_at
         if ready:
             return ("ok", "")
-        # An in-flight one-click repair is the freshest possible signal —
-        # report live pull progress (no TTL cache: progress changes every
-        # poll, and the classification is already known).
-        pull_progress = _embedding_pull_progress_view()
-        if pull_progress["running"]:
-            return ("repairing", str(pull_progress["status_text"] or _repair_progress_detail()))
         emb = getattr(getattr(getattr(ctx, "config", None), "llm", None), "embedding", None)
         provider = str(getattr(emb, "provider", "") or "").strip()
         if not provider:
@@ -5646,48 +5607,15 @@ def create_app(
                 f"embedding 配置无效（provider={provider!r}），"
                 "请到设置页重新选择 provider 并保存。",
             )
-        if provider.lower() != "ollama":
-            return (
-                "provider_error",
-                f"embedding provider（{provider}）探测失败——"
-                "请检查 API Key / base_url / 网络后重试。",
-            )
-
-        _diag_ttl = _EMBEDDING_FAIL_TTL_SECONDS
-        if time.monotonic() - _embedding_diag_checked_at < _diag_ttl:
-            return _embedding_diag_value
-        async with _embedding_diag_lock:
-            if time.monotonic() - _embedding_diag_checked_at < _diag_ttl:
-                return _embedding_diag_value
-            from openbiliclaw.llm.ollama_diagnostics import diagnose_ollama_embedding
-
-            base_url, model = _embedding_ollama_target()
-            try:
-                diag = await asyncio.wait_for(
-                    diagnose_ollama_embedding(base_url, model),
-                    timeout=_EMBEDDING_PROBE_TIMEOUT_SECONDS,
-                )
-                if diag[0] == "error":
-                    diag = ("provider_error", _provider_error_detail(diag[1]))
-            except TimeoutError:
-                diag = (
-                    "provider_error",
-                    "Ollama 诊断超时——服务可能正在冷加载模型，稍后自动重试。",
-                )
-            except Exception:
-                logger.debug("Embedding diagnosis errored", exc_info=True)
-                diag = ("provider_error", "embedding 诊断失败，请查看后端日志。")
-            _embedding_diag_value = diag
-            _embedding_diag_checked_at = time.monotonic()
-            return diag
+        return (
+            "provider_error",
+            f"embedding provider（{provider}）探测失败——请检查 API Key / base_url / 网络后重试。",
+        )
 
     def _peek_embedding_diagnosis(ready: bool) -> tuple[str, str]:
         """Return a non-I/O embedding diagnosis while guided init is active."""
         if ready:
             return ("ok", "")
-        pull_progress = _embedding_pull_progress_view()
-        if pull_progress["running"]:
-            return ("repairing", str(pull_progress["status_text"] or _repair_progress_detail()))
         emb = getattr(getattr(getattr(ctx, "config", None), "llm", None), "embedding", None)
         provider = str(getattr(emb, "provider", "") or "").strip()
         if not provider:
@@ -5700,8 +5628,8 @@ def create_app(
         """Interpret the cached live embedding probe for health or strict init.
 
         This is a live signal, not a build-time one. A service object that
-        was constructed at startup but whose provider now 404s (``bge-m3``
-        never pulled, Ollama stopped) reports ``False`` here, so the popup's
+        was constructed at startup but whose provider now 404s (bad key /
+        model retired / endpoint moved) reports ``False`` here, so the popup's
         "semantic dedup off" banner reflects reality instead of going green
         while every embed silently fails. Conversely, once a previously
         broken provider is fixed the banner clears within the cache TTL.
@@ -5711,8 +5639,8 @@ def create_app(
           - service without a ``probe()`` (legacy/stub) -> build-only ``True``;
           - otherwise a cache-bypassing ``probe()``, result cached for
             ``_EMBEDDING_READY_TTL_SECONDS`` and single-flighted so concurrent
-            polls share one provider round-trip. A loopback-Ollama timeout is
-            optimistic only when ``strict`` is false; init always passes true.
+            polls share one provider round-trip. A timeout is never treated as
+            ready.
         """
         nonlocal _embedding_probe_outcome, _embedding_ready_checked_at
 
@@ -5740,10 +5668,7 @@ def create_app(
                 )
                 outcome: _EmbeddingProbeOutcome = "ready" if ready else "failed"
             except TimeoutError:
-                logger.debug(
-                    "Embedding readiness probe timed out; ordinary loopback-Ollama health "
-                    "treats this as cold-loading while init remains strict"
-                )
+                logger.debug("Embedding readiness probe timed out; treated as not ready")
                 outcome = "timed_out"
             except Exception:
                 logger.debug("Embedding readiness probe errored", exc_info=True)
@@ -5764,7 +5689,7 @@ def create_app(
         """Pure liveness probe: no DB, no provider round-trips.
 
         ``/api/health`` is a READINESS endpoint — its embedding probe can
-        take seconds when the cache is cold (Ollama model reload), which
+        take seconds when the cache is cold, which
         made the extension's connection badge sit on "未连接" after opening
         the panel. UI liveness indicators should hit this instead and keep
         ``/api/health`` for profile/embedding state.
@@ -5789,7 +5714,7 @@ def create_app(
         """Lightweight endpoint for mobile QR code: LAN IP only.
 
         Unlike ``/api/health``, this skips the embedding readiness probe
-        so the QR drawer never blocks on a cold Ollama model load, and it
+        so the QR drawer never blocks on a slow provider probe, and it
         detects the address fresh instead of serving the health TTL cache
         (see ``_fresh_lan_ip``) so a scanned code is never a network change
         behind.
@@ -6024,8 +5949,6 @@ def create_app(
             if running or terminal_cache_ready or initialized
             else await _diagnose_embedding(bool(embedding))
         )
-        pull_progress = _embedding_pull_progress_view()
-        pull_status = str(pull_progress.get("status_text") or "")
 
         if not supported:
             reason, detail = "unsupported_runtime", "Docker 运行时不支持图形化初始化"
@@ -6105,11 +6028,6 @@ def create_app(
                 embedding_ready=embedding,
                 embedding_check=embedding_check,
                 embedding_detail=embedding_detail,
-                embedding_repair_running=bool(pull_progress["running"]),
-                embedding_repair_completed=_progress_int(pull_progress.get("completed")),
-                embedding_repair_total=_progress_int(pull_progress.get("total")),
-                ollama_phase=embedding_progress.ollama_phase(),
-                embedding_pull_status=pull_status,
                 embedding_required=embedding_required,
                 enabled_platforms=platforms,
                 source_capabilities=source_capabilities,
@@ -7216,16 +7134,17 @@ def create_app(
             chat_detail = ctx.init_prereqs.peek_chat_detail() or "AI 服务还没配好或当前不可用。"
             return JSONResponse({"error": "llm_not_ready", "detail": chat_detail}, status_code=409)
         if _embedding_required_for_init() and not await _health_embedding_ready(strict=True):
-            pulling = await _maybe_autostart_embedding_pull()
             await _abort_reserved_start("embedding_not_ready")
-            detail = (
-                _repair_progress_detail()
-                if pulling
-                else "向量模型还没就绪。请在初始化页点「修复向量模型」，或等待自动下载完成后重试。"
+            return JSONResponse(
+                {
+                    "error": "embedding_not_ready",
+                    "detail": (
+                        "向量模型还没就绪。请到设置页检查 Embedding Provider 的 "
+                        "API Key / base_url 后重试。"
+                    ),
+                },
+                status_code=409,
             )
-            return JSONResponse({"error": "embedding_not_ready", "detail": detail}, status_code=409)
-        with suppress(Exception):
-            await _maybe_autostart_embedding_pull()
 
         registry = getattr(ctx, "task_registry", None)
         # Capability admission may remove a discovery-only source from this
@@ -7271,398 +7190,6 @@ def create_app(
             {"run_id": run_id, **coord.get_status(), "warnings": warnings},
             status_code=202,
         )
-
-    # ── embedding one-click repair (v0.3.155+) ──────────────────────────
-    # Single-flight background `ollama pull` so the popup's "语义去重未启用"
-    # banner can actually FIX a missing/corrupt bge-m3 instead of retrying a
-    # call that can never succeed. State is process-local (mirrors the
-    # readiness cache): a restart simply forgets an old run.
-    _embedding_repair_state: dict[str, Any] = {
-        "running": False,
-        "model": "",
-        "status": "",
-        "completed": 0,
-        "total": 0,
-        "done": False,
-        "ok": False,
-        "error": "",
-    }
-    _embedding_repair_lock = asyncio.Lock()
-    _max_embedding_repair_actions = 3
-
-    def _repair_progress_detail() -> str:
-        """Human progress line for the in-flight pull (init pages render it)."""
-        state = _embedding_repair_state
-        model = str(state.get("model") or "向量模型")
-        completed = int(state.get("completed") or 0)
-        total = int(state.get("total") or 0)
-        if total > 0:
-            pct = min(99, round(completed * 100 / total))
-            done_mb = completed // (1024 * 1024)
-            total_mb = total // (1024 * 1024)
-            return f"正在下载 {model}：{pct}%（{done_mb}MB / {total_mb}MB），完成后自动就绪。"
-        return f"正在下载 {model}（准备中…），完成后自动就绪。"
-
-    def _progress_int(value: object) -> int:
-        if isinstance(value, int):
-            return value
-        if value is None:
-            return 0
-        try:
-            return int(str(value))
-        except ValueError:
-            return 0
-
-    def _embedding_pull_progress_view() -> dict[str, object]:
-        """Combined app-local repair + process-global auto-pull progress."""
-        snap = embedding_progress.snapshot()
-        if bool(snap.get("running")):
-            return {
-                "running": True,
-                "completed": _progress_int(snap.get("completed")),
-                "total": _progress_int(snap.get("total")),
-                "status_text": str(snap.get("status_text") or _repair_progress_detail()),
-            }
-        if _embedding_repair_state["running"]:
-            return {
-                "running": True,
-                "completed": _progress_int(_embedding_repair_state.get("completed")),
-                "total": _progress_int(_embedding_repair_state.get("total")),
-                "status_text": _repair_progress_detail(),
-            }
-        return {
-            "running": False,
-            "completed": 0,
-            "total": 0,
-            "status_text": str(snap.get("status_text") or ""),
-        }
-
-    def _provider_error_detail(detail: str) -> str:
-        base = detail.strip() or "Ollama 响应异常。"
-        return (
-            f"{base} 请升级 Ollama 到较新版本，确认 11434 端口没有被其他程序占用；"
-            "如果本机回环被代理劫持，请关闭代理或设置 NO_PROXY=127.0.0.1,localhost 后重试。"
-        )
-
-    async def _run_embedding_repair(base_url: str, model: str) -> None:
-        from openbiliclaw.llm.ollama_diagnostics import pull_ollama_model
-
-        def _on_progress(status: str, completed: int, total: int) -> None:
-            embedding_progress.report_pull(status, completed, total)
-            _embedding_repair_state.update(
-                {"status": status, "completed": completed, "total": total}
-            )
-
-        try:
-            ok, error = await pull_ollama_model(base_url, model, on_progress=_on_progress)
-        except Exception as exc:  # defensive: pull_ollama_model shouldn't raise
-            ok, error = False, f"{type(exc).__name__}: {exc}"
-        embedding_progress.mark_pull_done(ok, error)
-        _embedding_repair_state.update({"running": False, "done": True, "ok": ok, "error": error})
-        if ok:
-            logger.info("Embedding repair: pulled %s successfully", model)
-            # Next health/init-status poll re-probes immediately, so the
-            # banner and checklist green up without waiting out the TTL.
-            _expire_embedding_ready_cache()
-        else:
-            logger.warning("Embedding repair: pull %s failed: %s", model, error)
-
-    async def _maybe_autostart_embedding_pull() -> bool:
-        """Best-effort auto-pull for a locally hosted missing/broken model.
-
-        Also self-heals ``DIAG_NOT_RUNNING`` (managed Ollama simply not up yet)
-        by starting it first — reusing the same guards the manual repair
-        endpoint applies — then re-diagnosing so a genuinely missing/broken
-        model still gets auto-pulled. Any guard miss or start failure just
-        leaves the manual "修复向量模型" path to fix it (stays non-blocking).
-        """
-        emb = getattr(getattr(getattr(ctx, "config", None), "llm", None), "embedding", None)
-        if str(getattr(emb, "provider", "") or "").strip().lower() != "ollama":
-            return False
-        try:
-            base_url, model = _embedding_ollama_target()
-            from openbiliclaw.llm.ollama_diagnostics import (
-                DIAG_MODEL_BROKEN,
-                DIAG_MODEL_MISSING,
-                DIAG_NOT_RUNNING,
-                diagnose_ollama_embedding,
-                ollama_embedding_disk_space_error,
-            )
-            from openbiliclaw.runtime.ollama_supervisor import (
-                effective_ollama_endpoint,
-                ensure_managed_ollama,
-                is_loopback,
-                may_manage_ollama_endpoint,
-                ollama_required,
-            )
-
-            if not is_loopback(base_url):
-                return False
-            async with _embedding_repair_lock:
-                if _embedding_repair_state["running"] or bool(
-                    embedding_progress.snapshot().get("running")
-                ):
-                    return True
-                code, _detail = await diagnose_ollama_embedding(base_url, model)
-                if code == DIAG_NOT_RUNNING:
-                    cfg = ctx.config
-                    endpoint = effective_ollama_endpoint(cfg)
-                    may_manage = (
-                        bool(getattr(getattr(cfg, "autostart", None), "manage_ollama", False))
-                        and ollama_required(cfg)
-                        and is_loopback(endpoint)
-                        and may_manage_ollama_endpoint(endpoint)
-                    )
-                    if not may_manage or not ensure_managed_ollama(endpoint):
-                        return False
-                    # Re-diagnose now that the daemon is up: a missing/broken
-                    # model falls through to the auto-pull below.
-                    code, _detail = await diagnose_ollama_embedding(base_url, model)
-                if code not in {DIAG_MODEL_MISSING, DIAG_MODEL_BROKEN}:
-                    return False
-                if ollama_embedding_disk_space_error(model):
-                    return False
-                _embedding_repair_state.update(
-                    {
-                        "running": True,
-                        "model": model,
-                        "status": "starting",
-                        "completed": 0,
-                        "total": 0,
-                        "done": False,
-                        "ok": False,
-                        "error": "",
-                    }
-                )
-                embedding_progress.mark_pull_running(model)
-                coro = _run_embedding_repair(base_url, model)
-                try:
-                    registry = getattr(ctx, "task_registry", None)
-                    if registry is not None:
-                        registry.track("embedding_repair", coro)
-                    else:
-                        task = asyncio.create_task(coro)
-                        _fire_and_forget_tasks.add(task)
-                        task.add_done_callback(_fire_and_forget_tasks.discard)
-                except Exception as exc:
-                    error = f"{type(exc).__name__}: {exc}"
-                    _embedding_repair_state.update(
-                        {"running": False, "done": True, "ok": False, "error": error}
-                    )
-                    embedding_progress.mark_pull_done(False, error)
-                    coro.close()
-                    logger.debug("auto embedding pull scheduling failed", exc_info=True)
-                    return False
-            logger.info("Auto-started embedding pull for %s at init", model)
-            return True
-        except Exception:
-            logger.debug("auto embedding pull skipped", exc_info=True)
-            return False
-
-    @app.post("/api/embedding/repair")
-    async def start_embedding_repair(request: Request) -> JSONResponse:
-        """(Re-)pull the configured Ollama embedding model (local-only).
-
-        409s: not Ollama-backed (fix config instead), unmanaged Ollama is not
-        running, managed Ollama failed to start, or a repair already in flight.
-        """
-        if not _get_auth_gate().is_trusted_local(request):
-            return JSONResponse({"error": "local_only"}, status_code=403)
-        emb = getattr(getattr(getattr(ctx, "config", None), "llm", None), "embedding", None)
-        provider = str(getattr(emb, "provider", "") or "").strip().lower()
-        if provider != "ollama":
-            return JSONResponse(
-                {
-                    "error": "unsupported_provider",
-                    "detail": "一键修复只支持本地 Ollama embedding；"
-                    "请到设置页把 Embedding Provider 设为 ollama 后重试。",
-                },
-                status_code=409,
-            )
-        base_url, model = _embedding_ollama_target()
-
-        from openbiliclaw.llm.ollama_diagnostics import (
-            DIAG_DISK_FULL,
-            DIAG_ERROR,
-            DIAG_MODEL_BROKEN,
-            DIAG_MODEL_MISSING,
-            DIAG_MODEL_OOM,
-            DIAG_MODEL_PATH_ENCODING,
-            DIAG_NETWORK,
-            DIAG_NOT_RUNNING,
-            DIAG_OK,
-            diagnose_ollama_embedding,
-            ollama_embedding_disk_space_error,
-        )
-
-        async with _embedding_repair_lock:
-            if _embedding_repair_state["running"]:
-                return JSONResponse({"error": "already_running"}, status_code=409)
-            actions = 0
-            provider_error_restarted = False
-            while True:
-                code, detail = await diagnose_ollama_embedding(base_url, model)
-                if code == DIAG_OK:
-                    _expire_embedding_ready_cache()
-                    return JSONResponse({"ok": True, "already_ok": True, "model": model})
-                if code == DIAG_NOT_RUNNING:
-                    from openbiliclaw.runtime.ollama_supervisor import (
-                        effective_ollama_endpoint,
-                        ensure_managed_ollama,
-                        is_loopback,
-                        may_manage_ollama_endpoint,
-                        ollama_required,
-                    )
-
-                    cfg = ctx.config
-                    endpoint = effective_ollama_endpoint(cfg)
-                    may_manage = (
-                        bool(getattr(getattr(cfg, "autostart", None), "manage_ollama", False))
-                        and ollama_required(cfg)
-                        and is_loopback(endpoint)
-                        and may_manage_ollama_endpoint(endpoint)
-                    )
-                    if not may_manage:
-                        return JSONResponse(
-                            {"error": "not_running", "detail": detail},
-                            status_code=409,
-                        )
-                    if actions >= _max_embedding_repair_actions:
-                        return JSONResponse(
-                            {
-                                "error": "not_running",
-                                "detail": f"自动修复已达到上限：{detail}",
-                            },
-                            status_code=409,
-                        )
-                    if not ensure_managed_ollama(endpoint):
-                        return JSONResponse(
-                            {"error": "not_running", "detail": detail},
-                            status_code=409,
-                        )
-                    actions += 1
-                    continue
-                if code == DIAG_MODEL_PATH_ENCODING:
-                    from openbiliclaw.runtime.ollama_supervisor import (
-                        ollama_models_relocation_candidate,
-                        restart_managed_ollama_with_models_dir,
-                    )
-
-                    manual_detail = (
-                        "检测到模型路径含非 ASCII 字符（常见于中文 Windows 用户名），"
-                        "llama-server 无法从该路径加载模型，重新下载不能解决。"
-                        "请手动设置系统环境变量 OLLAMA_MODELS 为纯英文路径"
-                        f"（如 D:\\ollama\\models），然后重启 Ollama 并重新拉取 {model}。"
-                    )
-                    models_dir = ollama_models_relocation_candidate()
-                    if models_dir is None:
-                        return JSONResponse(
-                            {"error": "manual_fix_required", "detail": manual_detail},
-                            status_code=409,
-                        )
-                    restarted, reason = restart_managed_ollama_with_models_dir(models_dir)
-                    if not restarted and reason == "external_ollama":
-                        return JSONResponse(
-                            {
-                                "error": "external_ollama",
-                                "detail": (
-                                    "检测到外部启动的 Ollama，我们无法带新模型目录重启它；"
-                                    "请手动设置 OLLAMA_MODELS，或退出外部 Ollama 后重试。"
-                                ),
-                            },
-                            status_code=409,
-                        )
-                    if not restarted:
-                        return JSONResponse(
-                            {
-                                "error": "restart_failed",
-                                "detail": (
-                                    "迁移模型目录后重启 Ollama 失败，"
-                                    "请重启应用或手动设置 OLLAMA_MODELS。"
-                                ),
-                            },
-                            status_code=409,
-                        )
-                    if disk_error := ollama_embedding_disk_space_error(model):
-                        disk_code, disk_detail = disk_error
-                        return JSONResponse(
-                            {"error": disk_code, "detail": disk_detail},
-                            status_code=409,
-                        )
-                    break
-                if code in {DIAG_DISK_FULL, DIAG_NETWORK, DIAG_MODEL_OOM}:
-                    return JSONResponse({"error": code, "detail": detail}, status_code=409)
-                if code == DIAG_ERROR:
-                    if not provider_error_restarted:
-                        from openbiliclaw.runtime.ollama_supervisor import (
-                            effective_ollama_endpoint,
-                            is_loopback,
-                            may_manage_ollama_endpoint,
-                            ollama_required,
-                            restart_managed_ollama,
-                        )
-
-                        cfg = ctx.config
-                        endpoint = effective_ollama_endpoint(cfg)
-                        may_manage = (
-                            bool(getattr(getattr(cfg, "autostart", None), "manage_ollama", False))
-                            and ollama_required(cfg)
-                            and is_loopback(endpoint)
-                            and may_manage_ollama_endpoint(endpoint)
-                        )
-                        provider_error_restarted = True
-                        if may_manage and actions < _max_embedding_repair_actions:
-                            restarted, _reason = restart_managed_ollama()
-                            if restarted:
-                                actions += 1
-                                continue
-                    return JSONResponse(
-                        {"error": "provider_error", "detail": _provider_error_detail(detail)},
-                        status_code=409,
-                    )
-                if code in {DIAG_MODEL_MISSING, DIAG_MODEL_BROKEN}:
-                    if disk_error := ollama_embedding_disk_space_error(model):
-                        disk_code, disk_detail = disk_error
-                        return JSONResponse(
-                            {"error": disk_code, "detail": disk_detail},
-                            status_code=409,
-                        )
-                    break
-                return JSONResponse(
-                    {"error": "provider_error", "detail": _provider_error_detail(detail)},
-                    status_code=409,
-                )
-            # model_missing / model_broken (and path migration) are pull-fixable.
-            _embedding_repair_state.update(
-                {
-                    "running": True,
-                    "model": model,
-                    "status": "starting",
-                    "completed": 0,
-                    "total": 0,
-                    "done": False,
-                    "ok": False,
-                    "error": "",
-                }
-            )
-            embedding_progress.mark_pull_running(model)
-            registry = getattr(ctx, "task_registry", None)
-            coro = _run_embedding_repair(base_url, model)
-            if registry is not None:
-                registry.track("embedding_repair", coro)
-            else:
-                task = asyncio.create_task(coro)
-                _fire_and_forget_tasks.add(task)
-                task.add_done_callback(_fire_and_forget_tasks.discard)
-        return JSONResponse(
-            {"started": True, "model": model, "diagnosis": code, "detail": detail},
-            status_code=202,
-        )
-
-    @app.get("/api/embedding/repair")
-    async def embedding_repair_status() -> JSONResponse:
-        """Progress of the in-flight (or last finished) embedding repair."""
-        return JSONResponse(dict(_embedding_repair_state))
 
     @app.post("/api/init/cancel")
     async def cancel_guided_init(request: Request) -> JSONResponse:
@@ -20898,17 +20425,11 @@ def create_app(
             active_env_managed_inputs,
             autostart_shadowed,
         )
-        from openbiliclaw.runtime.ollama_supervisor import (
-            effective_ollama_endpoint,
-            is_loopback,
-            ollama_required,
-        )
 
         state = autostart.status()
         managed_env = active_env_managed_inputs(cfg)
         shadowed = autostart_shadowed(cfg.autostart.enabled)
         trusted_local = _get_auth_gate().is_trusted_local(request)
-        requires_ollama = ollama_required(cfg)
 
         reason = "none"
         if not state.supported:
@@ -20942,11 +20463,6 @@ def create_app(
         if detail_override is not None:
             detail = detail_override
 
-        if requires_ollama:
-            endpoint = effective_ollama_endpoint(cfg)
-            if not is_loopback(endpoint):
-                detail = (detail + " " if detail else "") + "Ollama 端点是远端地址，需自行管理。"
-
         return AutostartStatusOut(
             supported=state.supported,
             enabled=cfg.autostart.enabled,
@@ -20954,8 +20470,6 @@ def create_app(
             can_manage=trusted_local and state.supported and not managed_env and not shadowed,
             platform=state.platform,
             mechanism=state.mechanism,
-            manage_ollama=cfg.autostart.manage_ollama,
-            ollama_required=requires_ollama,
             reason=reason,
             detail=detail,
         )
@@ -21177,7 +20691,6 @@ def create_app(
                 http_referer=getattr(p, "http_referer", ""),
                 x_title=getattr(p, "x_title", ""),
                 reasoning_effort=getattr(p, "reasoning_effort", ""),
-                num_ctx=int(getattr(p, "num_ctx", 0) or 0),
             )
 
         instances = effective_llm_instances(cfg.llm)
@@ -21345,7 +20858,6 @@ def create_app(
                 claude=_provider_out(_legacy_provider_projection("claude")),
                 gemini=_provider_out(_legacy_provider_projection("gemini")),
                 deepseek=_provider_out(_legacy_provider_projection("deepseek")),
-                ollama=_provider_out(_legacy_provider_projection("ollama")),
                 openrouter=_provider_out(_legacy_provider_projection("openrouter")),
                 openai_compatible=_provider_out(_legacy_provider_projection("openai_compatible")),
                 orcarouter=_provider_out(_legacy_provider_projection("orcarouter")),
@@ -21699,7 +21211,6 @@ def create_app(
             ),
             autostart=AutostartConfigOut(
                 enabled=cfg.autostart.enabled,
-                manage_ollama=cfg.autostart.manage_ollama,
             ),
             saved_sync=SavedSyncConfigOut(
                 auto_sync_enabled=cfg.saved_sync.auto_sync_enabled,
@@ -22248,7 +21759,6 @@ def create_app(
                                     "http_referer",
                                     "x_title",
                                     "reasoning_effort",
-                                    "num_ctx",
                                     "name",
                                     "provider_type",
                                     "enabled",
@@ -22280,14 +21790,6 @@ def create_app(
                         setattr(target, field_name, new_value)
                     if "enabled" in raw_instance:
                         target.enabled = _as_bool(raw_instance["enabled"])
-                    if "num_ctx" in raw_instance:
-                        try:
-                            target.num_ctx = int(raw_instance["num_ctx"] or 0)
-                        except (TypeError, ValueError) as exc:
-                            raise HTTPException(
-                                status_code=400,
-                                detail=f"llm.instances.{instance_id}.num_ctx must be an integer",
-                            ) from exc
                     if (
                         existing is None
                         and "reasoning_effort" not in raw_instance
@@ -22368,7 +21870,6 @@ def create_app(
                 "claude",
                 "gemini",
                 "deepseek",
-                "ollama",
                 "openrouter",
                 "orcarouter",
                 "openai_compatible",
@@ -22392,7 +21893,6 @@ def create_app(
                 http_referer=legacy.http_referer,
                 x_title=legacy.x_title,
                 reasoning_effort=legacy.reasoning_effort,
-                num_ctx=legacy.num_ctx,
                 name=_LLM_PROVIDER_DISPLAY_NAMES.get(normalized_type, normalized_type),
                 provider_type=normalized_type,
                 enabled=True,
@@ -22448,7 +21948,6 @@ def create_app(
             "claude",
             "gemini",
             "deepseek",
-            "ollama",
             "openrouter",
             "orcarouter",
             "openai_compatible",
@@ -22574,7 +22073,6 @@ def create_app(
                             http_referer=instance.http_referer,
                             x_title=instance.x_title,
                             reasoning_effort=instance.reasoning_effort,
-                            num_ctx=instance.num_ctx,
                             name=f"{module_name} · {instance.name}",
                             provider_type=instance.provider_type,
                             enabled=instance.enabled,
@@ -22638,7 +22136,6 @@ def create_app(
         instance_id: str,
     ) -> ConfigModelDiscoveryResponse:
         from openbiliclaw.config import effective_llm_instances
-        from openbiliclaw.llm.openai_provider import OpenAIProvider
         from openbiliclaw.llm.registry import _build_instance_provider
 
         started = time.perf_counter()
@@ -22665,7 +22162,6 @@ def create_app(
             "deepseek",
             "openrouter",
             "orcarouter",
-            "ollama",
             "openai_compatible",
             "requesty",
             "api_route",
@@ -22685,23 +22181,7 @@ def create_app(
             )
 
         try:
-            if provider == "ollama":
-                base_url = (
-                    str(getattr(instance, "base_url", "") or "").strip()
-                    or "http://127.0.0.1:11434/v1"
-                )
-                if not base_url.rstrip("/").endswith("/v1"):
-                    base_url = base_url.rstrip("/") + "/v1"
-                provider_obj: Any = OpenAIProvider(
-                    api_key=api_key or "ollama",
-                    model=model or "__model_discovery__",
-                    base_url=base_url,
-                    provider_name="ollama",
-                    timeout=20.0,
-                    trust_env=False,
-                )
-            else:
-                provider_obj = _build_instance_provider(cfg, provider, instance)
+            provider_obj = _build_instance_provider(cfg, provider, instance)
             list_models = getattr(provider_obj, "list_models", None)
             if not callable(list_models):
                 raise RuntimeError(

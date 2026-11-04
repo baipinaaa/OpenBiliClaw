@@ -67,13 +67,6 @@ HEALTH_POLL_INTERVAL = 2.0
 LOCAL_NO_PROXY_HOSTS = ("localhost", "127.0.0.1", "::1")
 DOCKER_CONTAINER_NAME = "openbiliclaw-backend"
 DOCKER_RUNTIME_ROOT = "/app/runtime"
-DOCKER_OLLAMA_BASE_URL = "http://ollama:11434/v1"
-LOCAL_OLLAMA_BASE_URLS = (
-    "http://localhost:11434",
-    "http://localhost:11434/v1",
-    "http://127.0.0.1:11434",
-    "http://127.0.0.1:11434/v1",
-)
 DEFAULT_BILIBILI_FAVORITE_LIMIT = 300
 DEFAULT_BILIBILI_FOLLOW_LIMIT = 100
 USER_DATA_ONLY_ENTRIES = {
@@ -89,7 +82,6 @@ SUPPORTED_PROVIDERS = (
     "claude",
     "gemini",
     "deepseek",
-    "ollama",
     "openrouter",
     "orcarouter",
     "openai_compatible",
@@ -110,12 +102,10 @@ REMOTE_PROVIDERS = (
     "cheaperinference",
 )
 
-# Providers whose backend has no embeddings endpoint. When a user picks
-# one of these as the primary LLM and doesn't explicitly configure
-# embedding, we auto-wire local Ollama bge-m3 so the install actually
-# pulls the embedding model (otherwise embeddings silently fall back at
-# runtime to whatever the registry can find — see registry.py
-# build_embedding_service).
+# Providers whose backend has no embeddings endpoint. Kept as a convenience
+# list so the installer can point users at a separate embedding provider; the
+# bootstrap no longer wires one automatically (every embedding provider now
+# needs its own credentials).
 PROVIDERS_WITHOUT_EMBED = (
     "claude",
     "deepseek",
@@ -194,12 +184,9 @@ LLM_PRESETS: dict[str, dict[str, str]] = {
     },
 }
 
-# Local Ollama is intentionally NOT offered here as a chat provider
-# (v0.3.176+): the bundled Ollama is embedding-only (bge-m3), and small
-# local chat models don't clear the content-pipeline quality bar. Ollama
-# chat stays supported in the backend registry / desktop settings page,
-# and ``resolve_human_llm_choice`` still parses ``"ollama"`` for
-# non-interactive / backward-compat installs — it's just off the menu.
+# Only remote providers are offered: the project has no local inference
+# runtime, so a self-hosted endpoint must be reached through the
+# ``openai_compatible`` preset (vLLM / LM Studio / OneAPI / relay).
 HUMAN_LLM_MENU: tuple[tuple[str, str, str], ...] = (
     ("deepseek", "DeepSeek 官方 ★默认推荐", "deepseek-v4-flash"),
     ("openai_compatible", "★ 中转站 / OpenAI 协议兼容服务", "relay preset"),
@@ -236,12 +223,10 @@ PROVIDER_MODEL_DEFAULTS: dict[str, str] = {
     "requesty": "openai/gpt-4o-mini",
     "api_route": "gpt-5.5",
     "cheaperinference": "gpt-5.4-mini",
-    "ollama": "qwen2.5:7b",
 }
 
 PROVIDER_BASE_URL_DEFAULTS: dict[str, str] = {
     "deepseek": "https://api.deepseek.com",
-    "ollama": "http://127.0.0.1:11434/v1",
     "openrouter": "https://openrouter.ai/api/v1",
     "orcarouter": "https://api.orcarouter.ai/v1",
     "requesty": "https://router.requesty.ai/v1",
@@ -286,8 +271,8 @@ class HumanInstallAnswers:
     llm_api_key: str = ""
     llm_base_url: str | None = None
     llm_model: str | None = None
-    embedding_provider: str = "ollama"
-    embedding_model: str = "bge-m3"
+    embedding_provider: str = "gemini"
+    embedding_model: str = "gemini-embedding-001"
     embedding_base_url: str | None = None
     embedding_api_key: str | None = None
     xhs: bool = False
@@ -356,10 +341,7 @@ def resolve_human_llm_choice(raw: str) -> str | None:
         "compat": "openai_compatible",
     }
     menu_providers = {key for key, _label, _model in HUMAN_LLM_MENU}
-    # ``ollama`` is off the interactive menu (embedding-only bundle) but
-    # still accepted by name for non-interactive / backward-compat installs.
-    accepted = menu_providers | {"ollama"}
-    return aliases.get(value, value if value in accepted else None)
+    return aliases.get(value, value if value in menu_providers else None)
 
 
 def _resolve_human_openai_compatible_preset(raw: str) -> str | None:
@@ -510,9 +492,6 @@ def collect_human_llm_config(
 
     model_default = existing_model if provider == existing_provider else ""
     model_default = model_default or PROVIDER_MODEL_DEFAULTS.get(provider, "")
-    if provider == "ollama":
-        model = _prompt_required(input_func, "Ollama chat model", default=model_default)
-        return HumanInstallAnswers(provider=provider, llm_model=model)
 
     key_existing = existing_api_key if provider == existing_provider else ""
     api_key = _prompt_secret(secret_input_func, f"{provider} API Key", existing=key_existing)
@@ -581,12 +560,12 @@ def collect_interactive_confirmations(input_func: Any | None = input) -> InitCon
 
     print("")
     print("OpenBiliClaw init choices")
-    print("Embedding default: local Ollama bge-m3 (free/offline/no extra API key).")
+    print("Embedding default: Gemini (gemini-embedding-001) - needs a Gemini API key.")
     embedding_choice = str(
-        input_func("Embedding provider [ollama] (enter to accept default): ")
+        input_func("Embedding provider [gemini] (enter to accept default): ")
     ).strip()
-    embedding_provider = embedding_choice or "ollama"
-    model_default = "bge-m3" if embedding_provider == "ollama" else ""
+    embedding_provider = embedding_choice or "gemini"
+    model_default = "gemini-embedding-001" if embedding_provider == "gemini" else ""
     embedding_model = (
         str(input_func(f"Embedding model [{model_default}] (enter to accept default): ")).strip()
         or model_default
@@ -659,16 +638,13 @@ def _collect_human_embedding_config(
 ) -> tuple[str, str, str | None, str | None]:
     print("")
     print("Embedding provider")
-    print("1. Local Ollama bge-m3 ★default")
-    print("2. Gemini embedding")
-    print("3. Disable embedding")
-    print("4. Custom OpenAI-compatible embedding")
-    print("5. Advanced provider")
-    choice = str(input_func("Embedding provider [1 Ollama bge-m3]: ")).strip().lower()
+    print("1. Gemini embedding ★default")
+    print("2. Disable embedding")
+    print("3. Custom OpenAI-compatible embedding")
+    print("4. Advanced provider")
+    choice = str(input_func("Embedding provider [1 Gemini]: ")).strip().lower()
 
-    if choice in {"", "1", "ollama"}:
-        return "ollama", "bge-m3", None, None
-    if choice in {"2", "gemini"}:
+    if choice in {"", "1", "gemini"}:
         api_key = _prompt_secret(secret_input_func, "Gemini embedding API Key")
         model = _prompt_optional(
             input_func,
@@ -676,15 +652,18 @@ def _collect_human_embedding_config(
             default="gemini-embedding-001",
         )
         return "gemini", model, None, api_key
-    if choice in {"3", "disable", "disabled", "none", "no", "off"}:
+    if choice in {"2", "disable", "disabled", "none", "no", "off"}:
         return "", "", None, None
-    if choice in {"4", "openai_compatible", "openai-compatible", "compat"}:
+    if choice in {"3", "openai_compatible", "openai-compatible", "compat"}:
         base_url = _prompt_required(input_func, "Embedding OpenAI-compatible Base URL")
         api_key = _prompt_secret(secret_input_func, "Embedding OpenAI-compatible API Key")
         model = _prompt_required(input_func, "Embedding model")
         return "openai_compatible", model, base_url, api_key
 
-    provider = _prompt_required(input_func, "Embedding provider name", default=choice)
+    if choice in {"4", "advanced"}:
+        provider = _prompt_required(input_func, "Embedding provider name")
+    else:
+        provider = choice
     while provider not in SUPPORTED_PROVIDERS:
         print("Unknown embedding provider.")
         provider = _prompt_required(input_func, "Embedding provider name")
@@ -994,14 +973,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         choices=("", *SUPPORTED_PROVIDERS),
         help=(
             "Embedding provider override. Empty string = disable embedding. "
-            "Use 'ollama' for local bge-m3, or pick any "
-            "supported provider for a dedicated embedding endpoint."
+            "Pick any supported remote provider for a dedicated embedding "
+            "endpoint."
         ),
     )
     parser.add_argument(
         "--embedding-model",
         default=None,
-        help="Embedding model name (e.g. bge-m3, text-embedding-3-small).",
+        help="Embedding model name (e.g. gemini-embedding-001, text-embedding-3-small).",
     )
     parser.add_argument(
         "--embedding-base-url",
@@ -1099,17 +1078,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--skip-ollama-setup",
-        action="store_true",
-        help=(
-            "When --provider=ollama or --embedding-provider=ollama is "
-            "selected, the bootstrap will by default detect, install (via "
-            "brew/winget/install.sh), start, and pull the requested model. "
-            "Pass this flag to opt out — useful if you manage Ollama "
-            "yourself (e.g. inside a container with a custom image)."
-        ),
-    )
-    parser.add_argument(
         "--skip-start",
         action="store_true",
         help="Prepare config and dependencies but do not start the backend.",
@@ -1187,275 +1155,6 @@ def detect_uv() -> bool:
     """Return True when `uv` is available on PATH."""
 
     return which("uv") is not None
-
-
-# ---------------------------------------------------------------------------
-# Ollama auto-install helpers
-#
-# When the user picks ollama as their LLM and/or embedding provider, the
-# install isn't really "done" until ollama itself is installed, the daemon
-# is up, and the requested models are pulled. Without these helpers the
-# user lands in a "config is fine but nothing works because ollama is
-# missing" state, which defeats the one-line install promise.
-
-OLLAMA_HOST = "http://localhost:11434"
-
-
-def detect_ollama() -> str | None:
-    """Return the ollama binary path, or None when not installed."""
-
-    return which("ollama")
-
-
-def ollama_running(timeout: float = 2.0) -> bool:
-    """Probe Ollama's HTTP API. True iff /api/version returns 200."""
-
-    try:
-        with urllib.request.urlopen(f"{OLLAMA_HOST}/api/version", timeout=timeout) as resp:
-            return bool(resp.status == 200)
-    except Exception:
-        return False
-
-
-def install_ollama() -> bool:
-    """Install Ollama using the platform-native package manager.
-
-    macOS: prefer brew (most devs have it), fall back to printing the
-        download URL.
-    Windows: prefer winget (ships on Win 10 1803+), fall back to URL.
-    Linux: pipe the official install.sh — it auto-detects systemd and
-        sets up the service. Needs sudo for the systemd unit; users
-        without sudo will see install.sh's own error message.
-    """
-
-    if sys.platform == "darwin":
-        if which("brew"):
-            try:
-                run_streaming(["brew", "install", "ollama"], check=False)
-                return detect_ollama() is not None
-            except RuntimeError:
-                pass
-        info(
-            "Could not auto-install via brew. Download the macOS app from "
-            "https://ollama.com/download and re-run the bootstrap."
-        )
-        return False
-
-    if os.name == "nt":
-        if which("winget"):
-            try:
-                run_streaming(
-                    [
-                        "winget",
-                        "install",
-                        "-e",
-                        "--id",
-                        "Ollama.Ollama",
-                        "--accept-source-agreements",
-                        "--accept-package-agreements",
-                    ],
-                    check=False,
-                )
-                # winget puts ollama under %LOCALAPPDATA%\Programs\Ollama —
-                # may not be on PATH in this shell session yet.
-                local_app = os.environ.get("LOCALAPPDATA", "")
-                if local_app:
-                    candidate = Path(local_app) / "Programs" / "Ollama" / "ollama.exe"
-                    if candidate.exists():
-                        return True
-                return detect_ollama() is not None
-            except RuntimeError:
-                pass
-        info(
-            "Could not auto-install via winget. Download the Windows "
-            "installer from https://ollama.com/download and re-run."
-        )
-        return False
-
-    # Linux: piped curl | sh. install.sh handles systemd setup itself.
-    try:
-        result = subprocess.run(
-            "curl -fsSL https://ollama.com/install.sh | sh",
-            shell=True,
-            check=False,
-        )
-        return result.returncode == 0 and detect_ollama() is not None
-    except Exception:
-        return False
-
-
-def start_ollama_serve(wait_seconds: float = 15.0) -> bool:
-    """Spawn `ollama serve` in the background; wait for /api/version 200.
-
-    Returns False if the process couldn't be spawned, or if the daemon
-    isn't responding within ``wait_seconds``.
-    """
-
-    if ollama_running():
-        return True
-
-    ollama = detect_ollama()
-    if ollama is None:
-        return False
-
-    devnull = subprocess.DEVNULL
-    if os.name == "nt":
-        creationflags = getattr(subprocess, "DETACHED_PROCESS", 0x00000008) | getattr(
-            subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200
-        )
-        subprocess.Popen(  # noqa: S603 — known binary path from PATH
-            [ollama, "serve"],
-            creationflags=creationflags,
-            stdout=devnull,
-            stderr=devnull,
-            stdin=devnull,
-        )
-    else:
-        subprocess.Popen(  # noqa: S603 — known binary path from PATH
-            [ollama, "serve"],
-            start_new_session=True,
-            stdout=devnull,
-            stderr=devnull,
-            stdin=devnull,
-        )
-
-    deadline = time.monotonic() + wait_seconds
-    while time.monotonic() < deadline:
-        if ollama_running():
-            return True
-        time.sleep(0.5)
-    return False
-
-
-def ollama_has_model(model: str) -> bool:
-    """Return True when the named model is already pulled.
-
-    Matches both the bare name (``bge-m3``) and the tagged form
-    (``bge-m3:latest``) so users who pulled with an explicit tag still
-    pass the check.
-    """
-
-    try:
-        with urllib.request.urlopen(f"{OLLAMA_HOST}/api/tags", timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except Exception:
-        return False
-    for tag in data.get("models", []):
-        name = str(tag.get("name", "")).strip()
-        if name == model or name.startswith(f"{model}:"):
-            return True
-    return False
-
-
-def ollama_pull(model: str) -> bool:
-    """Pull a model via the ollama CLI (streams progress to stdout)."""
-
-    ollama = detect_ollama()
-    if ollama is None:
-        return False
-    try:
-        run_streaming([ollama, "pull", model], check=False)
-    except RuntimeError:
-        return False
-    return ollama_has_model(model)
-
-
-def ensure_ollama_ready(models: list[str]) -> dict[str, Any]:
-    """Detect → install → start → pull. Drives all four phases.
-
-    Returns a structured summary so the bootstrap can emit one
-    consolidated event. Each individual phase also emits its own event
-    (ollama_installed / ollama_serving / ollama_model_pulled / *_failed)
-    so an AI agent watching the JSON stream gets fine-grained progress.
-    """
-
-    summary: dict[str, Any] = {
-        "binary_path": "",
-        "installed_now": False,
-        "started_now": False,
-        "pulled": [],
-        "failed_pulls": [],
-        "running": False,
-    }
-
-    # Phase 1 — detect / install
-    binary = detect_ollama()
-    if binary is None:
-        info(
-            "Ollama not detected. Auto-installing now — this can take 1–3 "
-            "minutes depending on your network."
-        )
-        if not install_ollama():
-            emit(
-                BootstrapResult(
-                    "error",
-                    "ollama_install_failed",
-                    {
-                        "platform": sys.platform,
-                        "hint": (
-                            "Install Ollama manually from "
-                            "https://ollama.com/download then re-run the "
-                            "bootstrap. The rest of your config is already "
-                            "saved — re-running won't lose progress."
-                        ),
-                    },
-                )
-            )
-            return summary
-        binary = detect_ollama()
-        summary["installed_now"] = True
-        emit(BootstrapResult("ok", "ollama_installed", {"binary": binary or ""}))
-
-    summary["binary_path"] = binary or ""
-
-    # Phase 2 — start the daemon if not already up
-    if not ollama_running():
-        info("Starting 'ollama serve' in the background...")
-        if not start_ollama_serve():
-            emit(
-                BootstrapResult(
-                    "warning",
-                    "ollama_serve_failed",
-                    {
-                        "hint": (
-                            "Run 'ollama serve' manually in another terminal, "
-                            "then re-run the bootstrap."
-                        )
-                    },
-                )
-            )
-            return summary
-        summary["started_now"] = True
-        emit(BootstrapResult("ok", "ollama_serving", {"host": OLLAMA_HOST}))
-
-    summary["running"] = ollama_running()
-
-    # Phase 3 — pull the requested models
-    for model in models:
-        if not model:
-            continue
-        if ollama_has_model(model):
-            info(f"Ollama model '{model}' already pulled.")
-            summary["pulled"].append(model)
-            continue
-        info(f"Pulling Ollama model '{model}' (first time can take a few minutes)...")
-        if ollama_pull(model):
-            summary["pulled"].append(model)
-            emit(BootstrapResult("ok", "ollama_model_pulled", {"model": model}))
-        else:
-            summary["failed_pulls"].append(model)
-            emit(
-                BootstrapResult(
-                    "warning",
-                    "ollama_pull_failed",
-                    {
-                        "model": model,
-                        "hint": f"Run 'ollama pull {model}' manually and re-check.",
-                    },
-                )
-            )
-
-    return summary
 
 
 # ---------------------------------------------------------------------------
@@ -2149,7 +1848,6 @@ def _ensure_llm_instance(project_dir: Path, provider: str) -> str:
         "claude": "Claude",
         "gemini": "Gemini",
         "deepseek": "DeepSeek",
-        "ollama": "Ollama",
         "openrouter": "OpenRouter",
         "orcarouter": "OrcaRouter",
         "openai_compatible": "OpenAI-compatible",
@@ -2504,31 +2202,6 @@ def clear_llm_base_url(project_dir: Path, provider: str) -> bool:
     return clear_config_value(config_path, section, "base_url")
 
 
-def should_auto_wire_embedding(
-    *, embedding_provider_arg: str | None, effective_provider: str, mode: str
-) -> bool:
-    """Whether bootstrap should default ``[llm.embedding]`` to local Ollama.
-
-    v0.3.95+: embedding is fully decoupled from the chat provider, so a
-    flag-driven install that never passed ``--embedding-*`` — or one whose
-    chat provider can't embed (Claude / DeepSeek / OpenRouter) — would
-    leave embedding unconfigured and silently disable semantic dedup.
-
-    Returns ``True`` only when embedding is unconfigured AND the user did
-    not explicitly disable it (``--embedding-provider ""``) AND we're not
-    under Docker (the container can't reach the host's Ollama at
-    ``localhost``).
-    """
-    if mode == "docker":
-        return False
-    explicitly_disabled = (
-        embedding_provider_arg is not None and not (embedding_provider_arg or "").strip()
-    )
-    if explicitly_disabled:
-        return False
-    return not effective_provider.strip()
-
-
 def apply_embedding_config(
     project_dir: Path,
     *,
@@ -2561,23 +2234,7 @@ def apply_embedding_config(
         update_config_secret(config_path, "llm.embedding", "api_key", api_key)
         written.append("llm.embedding.api_key")
 
-    if target_provider == "ollama" and base_url is None:
-        existing = read_simple_toml(config_path).get("llm", {}).get("embedding", {})
-        if not str(existing.get("base_url", "")).strip():
-            update_config_secret(
-                config_path,
-                "llm.embedding",
-                "base_url",
-                "http://localhost:11434/v1",
-            )
-            written.append("llm.embedding.base_url(seeded)")
-
     return {"written": written, "provider": target_provider}
-
-
-def _is_local_ollama_base_url(base_url: str) -> bool:
-    normalized = base_url.strip().rstrip("/")
-    return not normalized or normalized in LOCAL_OLLAMA_BASE_URLS
 
 
 def align_docker_runtime_config(project_dir: Path) -> dict[str, Any]:
@@ -2589,16 +2246,6 @@ def align_docker_runtime_config(project_dir: Path) -> dict[str, Any]:
     provider = str(embedding_cfg.get("provider", "") or "").strip().lower()
     base_url = str(embedding_cfg.get("base_url", "") or "").strip()
     written: list[str] = []
-
-    if provider == "ollama" and _is_local_ollama_base_url(base_url):
-        update_config_secret(
-            config_path,
-            "llm.embedding",
-            "base_url",
-            DOCKER_OLLAMA_BASE_URL,
-        )
-        base_url = DOCKER_OLLAMA_BASE_URL
-        written.append("llm.embedding.base_url")
 
     return {
         "written": written,
@@ -2754,10 +2401,6 @@ def detect_missing_secrets(project_dir: Path) -> dict[str, Any]:
         base_url = str(provider_cfg.get("base_url", "") or "").strip()
         if not base_url:
             missing.append(f"{field_prefix}.base_url")
-    if provider == "ollama":
-        model = str(provider_cfg.get("model", "") or "").strip()
-        if not model:
-            missing.append(f"{field_prefix}.model")
     if not (cookie_inline or cookie_on_disk):
         missing.append("bilibili.cookie")
 
@@ -3602,8 +3245,6 @@ def run(args: argparse.Namespace) -> int:
         )
         emit(BootstrapResult("ok", "embedding_set", summary))
 
-    auto_embedding_to_ollama = False
-
     if args.module_override:
         try:
             mod_summary = apply_module_overrides(project_dir, args.module_override)
@@ -3636,87 +3277,6 @@ def run(args: argparse.Namespace) -> int:
                     docker_config_summary,
                 )
             )
-
-    # v0.3.95+: revive the embedding→Ollama safety net. Embedding is fully
-    # decoupled from the chat provider (v0.3.32+), so an install that sets
-    # a chat-only provider (Claude / DeepSeek / OpenRouter can't embed) —
-    # or any flag-driven run that never passed --embedding-* — would leave
-    # [llm.embedding].provider empty, silently disabling semantic dedup and
-    # letting near-duplicate content slip through. The old flag was declared
-    # but never set, so the net was dead. Wire it for real. Skipped under
-    # Docker (the container would point at its own localhost, not the host's
-    # Ollama) and when the user explicitly disabled embedding by passing
-    # --embedding-provider "".
-    effective_embedding_provider = str(
-        read_simple_toml(project_dir / "config.toml")
-        .get("llm", {})
-        .get("embedding", {})
-        .get("provider", "")
-    ).strip()
-    if should_auto_wire_embedding(
-        embedding_provider_arg=args.embedding_provider,
-        effective_provider=effective_embedding_provider,
-        mode=mode,
-    ):
-        apply_embedding_config(
-            project_dir,
-            provider="ollama",
-            model="bge-m3",
-            base_url=None,
-            api_key=None,
-        )
-        auto_embedding_to_ollama = True
-        emit(
-            BootstrapResult(
-                "ok",
-                "embedding_auto_ollama",
-                {
-                    "provider": "ollama",
-                    "model": "bge-m3",
-                    "reason": (
-                        "embedding was unconfigured; defaulted to local Ollama bge-m3 "
-                        "so semantic dedup isn't silently disabled"
-                    ),
-                },
-            )
-        )
-
-    # When the user picks ollama for either LLM or embedding, the install
-    # isn't really "done" until ollama is installed, the daemon is running,
-    # and the requested models are pulled. Without this step the user
-    # would land in a "config saved but nothing works" state.
-    #
-    # Inside Docker we deliberately skip this — the container talks to
-    # the *host's* ollama at host.docker.internal, and managing a host
-    # service from inside a container would be wrong.
-    ollama_models_needed: list[str] = []
-    if (args.provider or status["provider"]) == "ollama":
-        configured_ollama_model = str(
-            read_simple_toml(project_dir / "config.toml")
-            .get("llm", {})
-            .get("ollama", {})
-            .get("model", "")
-            or ""
-        ).strip()
-        if configured_ollama_model:
-            ollama_models_needed.append(configured_ollama_model)
-    if (args.embedding_provider or "").strip() == "ollama":
-        ollama_models_needed.append((args.embedding_model or "bge-m3").strip())
-    # When we auto-wired Ollama for embedding (Claude / DeepSeek /
-    # OpenRouter primary path), make sure bge-m3 is pulled so the
-    # embedding service has a working backend at first run.
-    if auto_embedding_to_ollama:
-        ollama_models_needed.append("bge-m3")
-    ollama_models_needed = [m for m in ollama_models_needed if m]
-    # Dedupe while preserving order (chat model first, then embedding).
-    deduped: list[str] = []
-    for model_name in ollama_models_needed:
-        if model_name not in deduped:
-            deduped.append(model_name)
-    ollama_models_needed = deduped
-    if ollama_models_needed and not args.skip_ollama_setup and mode != "docker":
-        ollama_summary = ensure_ollama_ready(ollama_models_needed)
-        emit(BootstrapResult("ok", "ollama_ready", ollama_summary))
 
     if not args.skip_install and mode == "local":
         try:
@@ -3882,7 +3442,7 @@ def run(args: argparse.Namespace) -> int:
                 failed = ", ".join(service_checks.get("failed", [])) or "unknown"
                 info(
                     "Pre-init AI service check failed for: "
-                    f"{failed}. Fix the provider/API key/Ollama/model, then re-run "
+                    f"{failed}. Fix the provider/API key/base_url/model, then re-run "
                     "the printed bootstrap command. Init has not been run."
                 )
                 return 0
