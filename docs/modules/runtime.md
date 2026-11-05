@@ -1,5 +1,6 @@
 # Runtime Module
 
+Docker 认证提示（2026-11-06）：bootstrap 等待扩展 Cookie 时明确提示先在容器设置密码、生成/启用设备密钥并重启配对；公开命令参数与状态结构不变。容器映射端口按远程访问处理，见[首次认证步骤](../docker-deployment.md#远程认证变更2026-11-06)。
 ## 封面显示副本缓存（2026-10-23）
 
 `image_cache.render_cover_for_display(data, content_type)` 在线程中生成 640px JPEG 显示副本，并按原始字节 SHA-256 与媒体类型存入线程安全 LRU；最多 128 项、16 MiB，只持有显示副本、不保留大尺寸原图。字节变化自动失效，超限淘汰最旧项，进程退出即释放。小图及解码失败继续返回原始字节，不改变原图磁盘缓存、CDN 抓取/SSRF 校验或预取策略。API 与独立 image_service 复用同一实现。
