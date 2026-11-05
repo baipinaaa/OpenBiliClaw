@@ -2,7 +2,7 @@
 
 > 按里程碑记录各阶段交付内容。每次分支合回 main 时追加条目。
 
-## Unreleased：移除本地模型支持（Ollama 聊天 + 本地 embedding）
+## v0.3.234：移除本地模型支持（Ollama 聊天 + 本地 embedding）（2026-11-05）
 
 > 破坏性变更。本版本不再内置任何本地推理运行时，聊天与 embedding 全部走远程 API（OpenAI / Claude / Gemini / DeepSeek / OpenRouter / OrcaRouter / Requesty / API Route / Cheaper Inference，或任意 OpenAI 兼容自建网关）。
 

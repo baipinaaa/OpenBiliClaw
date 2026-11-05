@@ -8,10 +8,18 @@ name: Release Desktop Installers
 # Scope note: the backend SOURCE stays source-only (`backend-v*` tags are git
 # markers, no Release) — only the desktop installer BINARIES ship here.
 #
-# Arch note: automatic releases build macOS arm64 + Windows x64.
+# Arch note: automatic releases build the Windows x64 installer. The macOS arm64
+# .dmg is opt-in: run this workflow manually with `build_macos` ticked (it needs
+# the Apple signing/notarization secrets to be configured). Tag pushes skip it.
 # Signed/notarized Intel x64 builds use the manual build-installers.yml workflow.
 on:
   workflow_dispatch:
+    inputs:
+      build_macos:
+        description: "Also build the macOS .dmg (requires Apple signing secrets)."
+        required: false
+        type: boolean
+        default: false
   push:
     tags:
       - "desktop-v*"
@@ -23,6 +31,8 @@ permissions:
 jobs:
   macos:
     name: macOS installer (.dmg, arm64)
+    # Tag pushes build Windows only; tick `build_macos` when dispatching by hand.
+    if: ${{ inputs.build_macos == true }}
     runs-on: macos-15 # Apple Silicon
     steps:
       - uses: actions/checkout@v6
@@ -246,7 +256,7 @@ jobs:
         run: |
           notes_file="$(mktemp)"
           cat > "$notes_file" <<'EOF'
-          **桌面预发布安装包**。macOS 安装包均经过 Developer ID 签名和 Apple 公证；缺少凭据或公证失败时停止对应构建，不生成实验包。后端源码仍为 source-only，此处只发桌面应用二进制。
+          **桌面预发布安装包**。默认只发布 Windows 安装包；macOS 安装包在手动触发并勾选 `build_macos` 时构建，均经过 Developer ID 签名和 Apple 公证；缺少凭据或公证失败时停止对应构建，不生成实验包。后端源码仍为 source-only，此处只发桌面应用二进制。
 
           ### 安装
           - **macOS**：退出旧版，打开 DMG，将 OpenBiliClaw 拖到 Applications 后启动。无需解除隔离；首次打开可能显示正常的互联网下载确认。
