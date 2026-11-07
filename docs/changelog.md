@@ -5,6 +5,7 @@
 ## v0.3.234：移除本地模型支持（Ollama 聊天 + 本地 embedding）（2026-11-05）
 
 - 修复默认多进程启动后开机自启动开关误报 `env_managed`：按启动快照区分调用方配置和运行时接线；源码自动更新重启仅清理运行时注入的环境变量，保留真实外部配置。补齐跨重启、重启失败及测试快照隔离回归。
+- 修复后台循环归属缺陷：full worker 自身带 `OPENBILICLAW_FULL_WORKER=1`，旧实现据此认为循环已委派而不启动任何循环，API 同时放弃启动，导致刷新循环在任何进程都没有运行（某 Windows 桌面端内容池因此自 2026-10-15 冻结 23 天）。现由调用方显式声明 `start_refresh_controller` / `start_account_sync` 归属；API 侧新增 watchdog，在 600s 宽限后按心跳接管无持有者的循环，只接管死者、不覆盖存活 worker。同时放宽 temporal 解析：`none` 对已分类候选合法，不再把 2402 条已分类内容降级为 `unknown`；子进程退出日志补上 `logs/child-<name>.log` 位置。
 
 > 破坏性变更。本版本不再内置任何本地推理运行时，聊天与 embedding 全部走远程 API（OpenAI / Claude / Gemini / DeepSeek / OpenRouter / OrcaRouter / Requesty / API Route / Cheaper Inference，或任意 OpenAI 兼容自建网关）。
 
