@@ -2,6 +2,27 @@
 
 > 向量请求是普通的远程 HTTP 调用（Gemini / OpenAI / 自建兼容网关）。本版本不含本地推理运行时，也不存在 GPU → CPU 回退路径。改其执行模式；该容器仍按部署的 GPU/CPU 配置运行。
 
+## 远程认证变更（2026-11-06）
+
+默认 `api.auth.enabled=false` 只开放可信本机私有 API，安装和初始化不会开启访问密码。Docker bridge、局域网、HTTPS/反向代理通常属于远程访问，首次连接前须通过容器内 `openbiliclaw set-password` 或 `OPENBILICLAW_API_AUTH_ENABLED=true` + `OPENBILICLAW_API_AUTH_PASSWORD` 配置密码；重启后登录。不能通过关闭密码来开放端口。详见[认证契约](modules/api-auth.md)。
+
+容器启动后，先在宿主机终端完成认证设置：
+
+```bash
+docker exec -it openbiliclaw-backend openbiliclaw set-password
+docker exec -it openbiliclaw-backend openbiliclaw ext-key generate
+docker exec -it openbiliclaw-backend openbiliclaw ext-key enable
+docker restart openbiliclaw-backend
+```
+
+Web 先打开 `http://127.0.0.1:8420/web/` 登录，再进入 `/setup/` 配置。扩展在设置页使用上面仅显示一次的设备密钥配对；它不是硅基流动的模型 Key。容器内 CLI 可直接管理配置。环境变量方式需要在 Compose 的 backend `environment` 或 `docker run -e` 显式传入，并重建容器，不能只在宿主机 export 而不传入容器。
+
+脚本安装等待扩展 Cookie 时，可在另一个终端完成这些步骤。再次执行 bootstrap 前，须将容器内最新的 `[api.auth]` 配置同步回宿主项目 `config.toml`（仍只保存在本机）；bootstrap 会把该文件同步到容器，避免旧配置覆盖新密码和设备密钥摘要。
+
+## 手机扫码连接（2026-10-26）
+
+桌面 Web / 插件「手机版」支持局域网、Tailscale、公网地址。Docker 用户应选手机可达的**宿主机地址与发布端口**，容器内部网卡 IP 无法保证被手机访问：可在「公网 / 自定义访问地址」输入 `http://<宿主机 LAN IP>:<发布端口>`，或现有 HTTPS 域名。浏览器扫码打开 `/m/`，新版 Android / iOS App「扫码连接」导入同一链接。镜像仍不内置 Tailnet helper；容器内也不保证能探测宿主机系统 Tailscale 地址，需要填写宿主机的 Tailscale URL 后生成二维码。扫码不改变 Docker 端口映射、代理或密码门禁。详见[手机扫码连接](mobile-connection.md)。
+
 [← 返回 README](../README.md)
 
 > 🔒 **局域网访问安全（可选密码门禁）**：容器把后端暴露在 `8420`，同网段设备都能访问。需要为局域网 / 远程设备加登录密码时（本机与浏览器扩展仍免登录），设置环境变量 `OPENBILICLAW_API_AUTH_ENABLED=true` + `OPENBILICLAW_API_AUTH_PASSWORD=…`（或进容器跑 `openbiliclaw set-password`）。若手动套其他反向代理，记得配 `[api.auth].trusted_proxies` 或让代理自行鉴权；仓库自带的 Caddy HTTPS overlay 已把可信代理收紧到共享 loopback。详见 [`docs/modules/api-auth.md`](modules/api-auth.md)。
