@@ -8,6 +8,7 @@
 - 修复后台循环归属缺陷：full worker 自身带 `OPENBILICLAW_FULL_WORKER=1`，旧实现据此认为循环已委派而不启动任何循环，API 同时放弃启动，导致刷新循环在任何进程都没有运行（某 Windows 桌面端内容池因此自 2026-10-15 冻结 23 天）。现由调用方显式声明 `start_refresh_controller` / `start_account_sync` 归属；API 侧新增 watchdog，在 600s 宽限后按心跳接管无持有者的循环，只接管死者、不覆盖存活 worker。同时放宽 temporal 解析：`none` 对已分类候选合法，不再把 2402 条已分类内容降级为 `unknown`；子进程退出日志补上 `logs/child-<name>.log` 位置。
 - **Windows 安装器目标目录**：交互式安装和升级都会显示「选择目标位置」，升级时预选原目录；如需换盘，先卸载旧版再选择新目录，避免多个安装路径共用同一卸载登记。安装器脚本测试覆盖该行为；macOS DMG 引导同步说明可拖入 Applications 或其他可写目录。
 - 修复 macOS / Linux 首次打开本机 Web 误弹访问密码（待发布）：主 API 在转发前鉴权，独立推荐进程只接受带内部凭据的转发，保存密码后远程推荐立即可用。桌面和手机 Web 依据主 API 的认证状态显示登录。新装默认关闭密码，终端初始化不再询问密码，桌面用户可在本机 Web「设置 → 通用」手动开启。
+- 后台 LLM 预算改为请求级硬上限并跨进程共享（issue #344，待下次发版）：`LLMConcurrencyGate` 在每次后台请求前扣减额度，超限抛 `LLMBudgetExhaustedError`（请求不会发出）；计数落在 SQLite `background_llm_budget` 表，daemon / API / 桌面 worker / CLI 共用一份额度，`scheduler.llm_budget_max_calls=0` 仍可关闭。认知循环在 awareness / insight 分片之间停下、保留水位并报告 `budget_exhausted`；强信号早触发去抖为 ≥30 分钟一次、每 12h 最多 4 次。同时把 `interests` 里 `state="archived"` 的生命周期墓碑行从两条 prompt 视图里剔除（存储不删），无台账输入仍逐字节不变。
 
 > 破坏性变更。本版本不再内置任何本地推理运行时，聊天与 embedding 全部走远程 API（OpenAI / Claude / Gemini / DeepSeek / OpenRouter / OrcaRouter / Requesty / API Route / Cheaper Inference，或任意 OpenAI 兼容自建网关）。
 
