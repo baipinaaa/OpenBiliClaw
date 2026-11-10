@@ -310,7 +310,8 @@ config save → safe API handoff → committed generation (wait for settings que
             → parent supervisor → stop old children → reload workers / recommendation / images
                                 └ retain parent's locked data path; durable candidates resume
 
-recommendation request → main API → optional Unix-socket recommendation process
+recommendation request → main API auth → optional recommendation process
+                                       → authorized request + startup proof over Unix socket / loopback TCP
                                   → current SQLite snapshot → full ranking worker
                                   → atomic history + shown COMMIT → cards + exact platform inventory
 main API ← validated response inventory / 2s active-client inventory watcher
