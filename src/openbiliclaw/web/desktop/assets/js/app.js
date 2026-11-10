@@ -1244,12 +1244,18 @@
       }
     }
 
-    function handleAuthRequired() {
-      // Mid-session token loss (expired / revoked): reload after re-login.
-      showLoginOverlay();
+    function handleAuthRequired(httpStatus, details) {
+      if (httpStatus !== 401 || !["auth_required", "auth_setup_required"].includes(details?.error)) return;
+      // Confirm that the main backend actually needs a login. A downstream
+      // failure or an unreachable status endpoint must not block the whole UI.
+      fetchAuthStatus().then((status) => {
+        if (status.authenticated !== false) return;
+        setSessionToken("");
+        showLoginOverlay(undefined, Boolean(status.setup_required));
+      }).catch(() => {});
     }
 
-    function showLoginOverlay(onSuccess) {
+    function showLoginOverlay(onSuccess, setupRequired = false) {
       if (_authOverlayShown) return;
       _authOverlayShown = true;
       const overlay = document.createElement("div");
@@ -1267,6 +1273,16 @@
         '<p id="authError" class="auth-error" role="alert" hidden></p>' +
         "</form>";
       document.body.appendChild(overlay);
+      if (setupRequired) {
+        overlay.querySelector(".auth-copy").textContent =
+          "请先在运行后端的电脑上，打开设置并启用局域网访问密码，然后返回此页面。";
+        overlay.querySelector("#authPassword")?.remove();
+        const retry = overlay.querySelector("button");
+        retry.type = "button";
+        retry.textContent = "已设置，重新检查";
+        retry.addEventListener("click", () => location.reload());
+        return;
+      }
       const input = overlay.querySelector("#authPassword");
       const button = overlay.querySelector("button");
       const errorEl = overlay.querySelector("#authError");
@@ -1304,7 +1320,8 @@
             return;
           }
           if (res.status === 403) showError("此来源不被允许跨源登录（需配置 allowed_bearer_origins）");
-          else if (res.status === 400) showError("跨源登录需设置有限有效期（session_ttl_hours>0）");
+          else if (data?.error === "bearer_requires_ttl") showError("跨源登录需设置有限有效期（session_ttl_hours>0）");
+          else if (data?.error === "auth_disabled") location.reload();
           else showError(res.status === 429 ? "尝试过于频繁，请稍后再试" : "密码错误");
         } catch {
           showError("无法连接后端，请稍后重试");
@@ -1528,10 +1545,7 @@
         const contentType = response.headers.get("content-type") || "";
         const details = contentType.includes("application/json") ? await response.json().catch(() => null) : await response.text().catch(() => "");
         if (!response.ok) {
-          if (response.status === 401) {
-            setSessionToken("");  // drop a stale bearer token before re-login
-            handleAuthRequired();
-          }
+          handleAuthRequired(response.status, details);
           const error = new Error(configErrorMessage(details) || `${path} 请求失败：HTTP ${response.status}`);
           error.status = response.status;
           error.details = details;
@@ -1672,10 +1686,7 @@
           const details = contentType.includes("application/json")
             ? await response.json().catch(() => null)
             : await response.text().catch(() => "");
-          if (response.status === 401) {
-            setSessionToken("");
-            handleAuthRequired();
-          }
+          handleAuthRequired(response.status, details);
           const error = new Error(configErrorMessage(details) || `导出失败：HTTP ${response.status}`);
           error.status = response.status;
           error.details = details;

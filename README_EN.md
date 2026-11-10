@@ -648,7 +648,7 @@ TikTok account flow: `manual init / explicitly enabled incremental sync → sour
 
 Cloud embedding: `request → embedding provider HTTP call → vector`. When the provider is unconfigured or its probe fails, semantic features (dedup, diversity) degrade gracefully instead of blocking the pipeline.
 
-Recommendation requests: `main API → default dedicated recommendation process → current SQLite candidates → full ranking → atomic commit → cards + total/platform inventory`. The main API relays inventory events and observes background refills while clients are connected.
+Recommendation requests: `main API auth → default dedicated recommendation process → current SQLite candidates → full ranking → atomic commit → cards + total/platform inventory`. The main API relays inventory events and observes background refills while clients are connected.
 
 Chat: `session style → durable turn freezes style → API-owned agent task → conversation context and saved notes + skill tools (web search / URL reading) + expression style → persisted events / SSE → completed reply`. The original task continues after an HTTP disconnect; retries of a completed turn replay its saved events.
 

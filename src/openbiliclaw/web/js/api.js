@@ -72,8 +72,9 @@ function forgetPendingRequestId(key, requestId) {
   persistPendingRequestIds();
 }
 
-/** Notify the shell that the session is gone so it can show the login view. */
-function signalAuthRequired() {
+/** Ask the shell to recheck the gate after a backend authentication error. */
+function signalAuthRequired(status, details) {
+  if (status !== 401 || !["auth_required", "auth_setup_required"].includes(details?.error)) return;
   try {
     window.dispatchEvent(new CustomEvent("obc:auth-required"));
   } catch { /* non-browser env */ }
@@ -126,7 +127,7 @@ export async function requestJson(path, options = {}) {
     if (!res.ok) {
       let details = null;
       try { details = await res.json(); } catch { details = null; }
-      if (res.status === 401) signalAuthRequired();
+      signalAuthRequired(res.status, details);
       const err = new Error(`${path} failed: ${res.status}`);
       err.status = res.status;
       err.details = details;
@@ -485,7 +486,7 @@ async function postSse(path, body, { signal } = {}) {
   if (!response.ok) {
     let details = null;
     try { details = await response.json(); } catch { details = null; }
-    if (response.status === 401) signalAuthRequired();
+    signalAuthRequired(response.status, details);
     const err = new Error(`${path} failed: ${response.status}`);
     err.status = response.status;
     err.details = details;

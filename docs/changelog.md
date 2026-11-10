@@ -7,6 +7,7 @@
 - 修复默认多进程启动后开机自启动开关误报 `env_managed`：按启动快照区分调用方配置和运行时接线；源码自动更新重启仅清理运行时注入的环境变量，保留真实外部配置。补齐跨重启、重启失败及测试快照隔离回归。
 - 修复后台循环归属缺陷：full worker 自身带 `OPENBILICLAW_FULL_WORKER=1`，旧实现据此认为循环已委派而不启动任何循环，API 同时放弃启动，导致刷新循环在任何进程都没有运行（某 Windows 桌面端内容池因此自 2026-10-15 冻结 23 天）。现由调用方显式声明 `start_refresh_controller` / `start_account_sync` 归属；API 侧新增 watchdog，在 600s 宽限后按心跳接管无持有者的循环，只接管死者、不覆盖存活 worker。同时放宽 temporal 解析：`none` 对已分类候选合法，不再把 2402 条已分类内容降级为 `unknown`；子进程退出日志补上 `logs/child-<name>.log` 位置。
 - **Windows 安装器目标目录**：交互式安装和升级都会显示「选择目标位置」，升级时预选原目录；如需换盘，先卸载旧版再选择新目录，避免多个安装路径共用同一卸载登记。安装器脚本测试覆盖该行为；macOS DMG 引导同步说明可拖入 Applications 或其他可写目录。
+- 修复 macOS / Linux 首次打开本机 Web 误弹访问密码（待发布）：独立推荐进程保留主 API 核验过的本机身份；桌面和手机 Web 只在主 API 确认需要认证时才显示登录。密码默认关闭，远程仍需先在本机设置密码。
 
 > 破坏性变更。本版本不再内置任何本地推理运行时，聊天与 embedding 全部走远程 API（OpenAI / Claude / Gemini / DeepSeek / OpenRouter / OrcaRouter / Requesty / API Route / Cheaper Inference，或任意 OpenAI 兼容自建网关）。
 

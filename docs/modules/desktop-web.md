@@ -1,5 +1,48 @@
 # 桌面 Web（Desktop Web UI）
 
+## 初始化平台选项（2026-11-09，待发布）
+
+| 已实现功能 | 行为 |
+| --- | --- |
+| 额外账号信息按需展开 | PC 初始化来源列表仅在勾选 Bangumi / GitHub 时展示对应用户名、令牌和帮助；取消勾选收起，重新勾选保留输入。 |
+
+公开接口：`POST /api/init` 契约不变，未选来源不提交 `source_options`；不改变常规配置页的账号编辑功能。
+
+## 远程访问设置引导（2026-11-06）
+
+| 已实现能力 | 契约 |
+| --- | --- |
+| 未启用密码时 | 远程私有 API 被拒，页面提示先在后端电脑设置密码；本机默认仍免登录。 |
+| 状态入口 | `GET /api/auth/status` 的 `setup_required` 显示设置引导；开启后 Web 使用密码登录，扩展使用设备密钥配对。 |
+| 登录触发 | 桌面和手机 Web 只在主 API 返回 `authenticated=false` 时锁定页面。业务 401 或主 API 确认仍已认证时保留界面；桌面只在登录响应确为 `bearer_requires_ttl` 时提示跨源有效期。 |
+
+公开接口与错误码见 [API Auth](api-auth.md)。关闭开关的说明改为仅允许本机访问，不能继续显示局域网免密。
+
+
+## 硅基流动固定实例（2026-11-07，待随应用发布）
+
+| 已实现能力 | 行为 |
+| --- | --- |
+| 普通 LLM 实例 | Qwen3-8B 与 Qwen3.5-4B 各是一个固定实例，与自有渠道共用实例列表、默认链和模块链；卡片标注只读，只有测试入口，不能编辑、删除、停用或复制。 |
+| 独立 Embedding | 在原 Embedding Provider 下拉选择硅基流动 BGE-M3（1024维）或本地 Ollama；与聊天实例独立，不覆盖另一份隐藏配置。“默认 / 备选”仍是单端点加构建期备选，不是 LLM 式多实例运行时调用链。 |
+| 手机配置并存 | 固定免费 LLM / Embedding 选择与 Jev 原生探测共用现有设置页；Jev 表单通过 `probeJevConfig` 测试当前草稿，保存 Jev 时不改未变更的聊天 / 向量配置。 |
+| 初始化与切换 | 初始化保存普通实例和向量配置；PC / 插件可把另一免费实例加入备用链，手机可选择主实例，Provider 选择框纵向排列、约束宽度并保持 44px 点击高度，避免长模型名溢出窄屏；完整链编辑通过 PC 设置。选择免费服务不隐式添加付费备用。 |
+| 安装、探测与通知 | 内置实例测试自动准备签名组件，普通实例探测只测该实例，Embedding 单独探测。凭据通知按实际启用能力保留，状态刷新保留恢复按钮和未保存草稿。 |
+
+公开接口：内置实例的 `read_only=true` 由后端计算；`PUT /api/config` 拒绝其任意字段修改及新建副本，整体替换实例列表时保留被省略的内置项；仅改变调用链可生效。`GET/PUT /api/config` 使用 `llm.instances`、`default_chain`、`routes` 与 `embedding`；`POST /api/config/probe-service` 使用 `kind=llm_instance`（带 `instance_id`）或 `kind=embedding`；模型发现返回获批的两个 ID。组件就绪和凭据通知仍通过兼容的 `llm.sponsored` 元信息输出，组件安装沿用 `POST /api/config/sponsored/prepare`，不向页面暴露共享 Key、路径或任意运行命令。 手机端只提交用户实际改动的 LLM/Embedding 字段，保存 Jev、语言或同步选项不会强制迁移未改动的旧 LLM 配置。
+
+共享前端 `syncInstance()` / `syncEmbedding()` 只控制普通字段；`renderNotice()` / `updateStatus()` 渲染无凭据通知。原 `mount()` 独立方案表单已移除。已有免费开关配置在后端迁移为实例和链。免费实例仅启用文本 / JSON / 工具能力，BGE 不支持图片向量；图片能力是可选能力，不影响初始化。
+
+## 手机扫码连接（2026-10-26）
+
+| 已实现能力 | 行为 |
+| --- | --- |
+| 三种网络 | 「手机版」可选择局域网、系统 / 应用内 Tailscale、公网或自定义地址。 |
+| 可访问地址 | 已保存的回环地址不再覆盖局域网探测；仅监听本机时隐藏 LAN / 系统 Tailscale 二维码；没有地址时禁用复制。 |
+| 统一链接 | 相机扫码打开 `/m/`，新版原生 App「扫码连接」解析同一链接并保存后端；仅应用内节点带 `obc_connection=tailscale`。 |
+
+公开前端接口：`/shared/mobile-connection.js` 的 `OBCMobileConnection.connectionChoices()` 生成地址选项，`createPanel()` 管理选择、输入、加载与复制状态；插件随包复制同一源码。每次打开重新请求 `GET /api/qr-info`，失败或空响应不复用旧 Wi-Fi 地址。二维码本机编码，短链接用 QR v5，长链接用 v10（最多 271 UTF-8 字节），不调用第三方二维码服务。配置字段不变。使用与协议见[手机扫码连接](../mobile-connection.md)。
+
 ## 首屏静态脚本交付（2026-10-23）
 
 ```text

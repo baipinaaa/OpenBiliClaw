@@ -26,6 +26,7 @@ from starlette.responses import JSONResponse, Response
 
 from openbiliclaw import auth_core
 from openbiliclaw.auth_core import COOKIE_NAME, CSRF_HEADER
+from openbiliclaw.recommendation_runtime import RECOMMENDATION_LOCAL_HEADER
 
 if TYPE_CHECKING:
     from starlette.requests import HTTPConnection
@@ -323,17 +324,50 @@ def _is_public(request: Request) -> bool:
 # ── middleware ──────────────────────────────────────────────────────────────
 
 
-def make_auth_middleware(get_gate: GateGetter) -> Any:
+def make_auth_middleware(get_gate: GateGetter, *, recommendation_local_token: str = "") -> Any:
     """Build the ASGI http middleware dispatch closure."""
 
     async def auth_guard(request: Request, call_next: Any) -> Any:
         gate: AuthGate = get_gate()
-        if not gate.auth.enabled:
-            return await call_next(request)
         if _is_public(request):
             return await call_next(request)
         if gate.is_trusted_local(request):
             return await call_next(request)
+        # The dedicated Unix socket has no IP peer. Only the main API can
+        # attest that it received this recommendation request from trusted local.
+        if (
+            recommendation_local_token
+            and request.client is None
+            and (
+                request.url.path == "/api/recommendations"
+                or request.url.path.startswith("/api/recommendations/")
+            )
+            and secrets.compare_digest(
+                request.headers.get(RECOMMENDATION_LOCAL_HEADER, "").encode(),
+                recommendation_local_token.encode(),
+            )
+        ):
+            return await call_next(request)
+        if not gate.auth.enabled:
+            # Migration has its own stricter physical-loopback + same-origin
+            # + X-OBC-Auth guard, independent of trust_loopback. Keep local
+            # recovery available when ordinary loopback bypass is disabled.
+            if request.url.path in {
+                "/api/migration/export",
+                "/api/migration/import",
+                "/api/migration/status",
+                "/api/migration/pending",
+            }:
+                return await call_next(request)
+            return _cors_echo(
+                JSONResponse(
+                    {
+                        "error": "auth_setup_required",
+                        "detail": "请先在运行后端的电脑上设置访问密码，再从其他设备连接。",
+                    },
+                    status_code=401,
+                )
+            )
 
         used_cookie, token = gate.pick_token(request)
         # Fallback: <img src> cannot carry cookies (cross-origin) or custom
