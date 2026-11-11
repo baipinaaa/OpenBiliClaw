@@ -12,6 +12,14 @@ from openbiliclaw.bilibili.api import BilibiliAPIClient
 
 if TYPE_CHECKING:
     from pathlib import Path
+@pytest.fixture(autouse=True)
+def _isolate_autostart_startup_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give each test its own process-start snapshot, including entry tests."""
+    from openbiliclaw.runtime.autostart import guards
+
+    monkeypatch.setattr(guards, "_startup_env_keys", None)
+
+
 
 
 @pytest.fixture(autouse=True)
