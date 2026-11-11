@@ -260,7 +260,7 @@ jobs:
 
           ### 安装
           - **macOS**：退出旧版，打开 DMG，将 OpenBiliClaw 拖到 Applications 后启动。无需解除隔离；首次打开可能显示正常的互联网下载确认。
-          - **Windows**：SmartScreen 弹窗点「更多信息 → 仍要运行」。
+          - **Windows**：在「选择目标位置」页选安装目录。升级默认沿用原目录；换盘请先卸载旧版，再选择新目录。SmartScreen 弹窗点「更多信息 → 仍要运行」。
 
           纯远程推理（聊天与 embedding 均走你配置的云端 API，无内置本地模型），常驻 macOS 菜单栏 / Windows 系统托盘。数据在 `~/OpenBiliClaw`（macOS / Linux）/ `%USERPROFILE%\OpenBiliClaw`（Windows），升级 / 卸载不动它。Intel mac（x64）.dmg 未自动构建，需要时用手动的 build-installers.yml 产出后补挂。
           EOF
