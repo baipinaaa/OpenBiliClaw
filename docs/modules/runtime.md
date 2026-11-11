@@ -789,3 +789,12 @@ TikTok 的 formal producer 与 inspiration 共用 `sources.tiktok_state.TiktokRe
 已实现：正式 `RuntimeContext` 的启动与配置热重载将 TikTok 加入 `SourceIncrementalSync.source_enabled`，修复配置已启用但实际调度永远跳过的遗漏。`build_runtime_context()` / `RuntimeContext.rebuild_from_config()` 的公开签名不变；来源映射集合与 `SOURCE_ORDER` 用实际 builder 回归校验。全局和逐源 incremental 开关仍默认关闭，未到期不入队，完成推进 cadence，关闭取消 pending 周期任务。
 
 共享 `enqueue_tiktok_bootstrap()` 改为喜欢、收藏、关注三个默认 scope；历史缺失不影响默认任务完整成功。新增正式 runtime→SQLite→终态对账测试，模拟时钟覆盖下一周期；该测试不代表浏览器非空账号 E2E。
+
+## 相对惊喜队列与冷启动（2026-11-11）
+
+| 已实现能力 / 公开接口 | 行为 |
+| --- | --- |
+| `RuntimeContext.__post_init__()` | 向共享 Database 注入解析最新 effective dislikes 的回调，热重载后跟随新 SoulEngine；隔离库存读继承同一策略 |
+| `get_pending_delight()` / runtime counts | 经 `select_delight_candidates()` / `count_selected_delights()` 消费相同身份集合；旧存储适配器仍兼容阈值参数，主动推送的 4h 冷却保持生效 |
+| `run_init_backfill()` | 完成检查同时认可惊喜供给，只有一条合格内容被惊喜占位时不误报初始化空池 |
+| 消费与耗尽 | 查看时归还 raw headroom，旧版已读 fresh 行也不再占位；已读排除在排名人口之外；剩余候选立即晋级。消费事件唤醒已有协调器和有界补货，真正空池仍等待来源供给，不循环重放历史 |

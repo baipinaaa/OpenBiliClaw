@@ -4,6 +4,8 @@
 
 ## v0.3.234：移除本地模型支持（Ollama 聊天 + 本地 embedding）（2026-11-05）
 
+- 惊喜推荐改为相对精选（2026-11-11）：改为剩余合格池前 10% 的精确身份选择，移除固定 0.75/0.80 与 150 样本门槛；已读、普通推荐历史、避雷和时效先过滤。同分稳定限额，普通推荐/库存共享占位；冷启动仅一条仍可初始化，消费后归还 raw headroom、本地补位并唤醒既有有界补货，旧版已读 fresh 行也不再占住补货空间。正式文案快照提前准备，不新增模型调用；三端通过队列刷新事件收敛，移动端防止迟到首屏空响应清空新卡，输入草稿和读取失败保留状态。
+
 > 破坏性变更。本版本不再内置任何本地推理运行时，聊天与 embedding 全部走远程 API（OpenAI / Claude / Gemini / DeepSeek / OpenRouter / OrcaRouter / Requesty / API Route / Cheaper Inference，或任意 OpenAI 兼容自建网关）。
 
 - 认知 prompt 不再重复序列化归档兴趣（issue #342）：`preference_prompt_payload()` 门面统一剔除只增不减的 `archived_interests` 台账，五个偏好 prompt builder 与 `build_cognition_profile_view_v1` 的 legacy / compact-v1 两条视图都不再输出它；持久化存储不变，偏好分析器仍从库内做归档别名去重与证据驱动复燃，无台账输入的 prompt 逐字节不变。5,000 条台账与空台账的 compact 提示词字节一致，账号变老不再推高每次 awareness/confusion 调用的输入 token。
