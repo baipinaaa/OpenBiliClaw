@@ -1441,7 +1441,7 @@ requires-dist = [
     { name = "qrcode", specifier = ">=8" },
     { name = "rdt-cli", specifier = ">=0.4.1" },
     { name = "rich", specifier = ">=13" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8,<0.18" },
     { name = "scrapetube", specifier = ">=2.1" },
     { name = "twitter-cli", specifier = ">=0.8.5" },
     { name = "twitter-cli", marker = "extra == 'x'", specifier = ">=0.8.5" },
