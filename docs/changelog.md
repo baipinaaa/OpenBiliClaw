@@ -2,17 +2,26 @@
 
 > 按里程碑记录各阶段交付内容。每次分支合回 main 时追加条目。
 
-## v0.3.234：移除本地模型支持（Ollama 聊天 + 本地 embedding）（2026-11-05）
+## v0.3.235：同步上游 Windows 与访问控制修复（2026-11-12）
+
+本版本只摘取上游与本 fork 相关的 Windows 安装体验与访问控制修复，不含上游的免费模型 / 动态网页源功能。
 
 - 修复默认多进程启动后开机自启动开关误报 `env_managed`：按启动快照区分调用方配置和运行时接线；源码自动更新重启仅清理运行时注入的环境变量，保留真实外部配置。补齐跨重启、重启失败及测试快照隔离回归。
 - 修复后台循环归属缺陷：full worker 自身带 `OPENBILICLAW_FULL_WORKER=1`，旧实现据此认为循环已委派而不启动任何循环，API 同时放弃启动，导致刷新循环在任何进程都没有运行（某 Windows 桌面端内容池因此自 2026-10-15 冻结 23 天）。现由调用方显式声明 `start_refresh_controller` / `start_account_sync` 归属；API 侧新增 watchdog，在 600s 宽限后按心跳接管无持有者的循环，只接管死者、不覆盖存活 worker。同时放宽 temporal 解析：`none` 对已分类候选合法，不再把 2402 条已分类内容降级为 `unknown`；子进程退出日志补上 `logs/child-<name>.log` 位置。
 - **Windows 安装器目标目录**：交互式安装和升级都会显示「选择目标位置」，升级时预选原目录；如需换盘，先卸载旧版再选择新目录，避免多个安装路径共用同一卸载登记。安装器脚本测试覆盖该行为；macOS DMG 引导同步说明可拖入 Applications 或其他可写目录。
 - 修复 macOS / Linux 首次打开本机 Web 误弹访问密码（待发布）：主 API 在转发前鉴权，独立推荐进程只接受带内部凭据的转发，保存密码后远程推荐立即可用。桌面和手机 Web 依据主 API 的认证状态显示登录。新装默认关闭密码，终端初始化不再询问密码，桌面用户可在本机 Web「设置 → 通用」手动开启。
 - 后台 LLM 预算改为请求级硬上限并跨进程共享（issue #344，待下次发版）：`LLMConcurrencyGate` 在每次后台请求前扣减额度，超限抛 `LLMBudgetExhaustedError`（请求不会发出）；计数落在 SQLite `background_llm_budget` 表，daemon / API / 桌面 worker / CLI 共用一份额度，`scheduler.llm_budget_max_calls=0` 仍可关闭。认知循环在 awareness / insight 分片之间停下、保留水位并报告 `budget_exhausted`；强信号早触发去抖为 ≥30 分钟一次、每 12h 最多 4 次。同时把 `interests` 里 `state="archived"` 的生命周期墓碑行从两条 prompt 视图里剔除（存储不删），无台账输入仍逐字节不变。
+- 认知 prompt 不再重复序列化归档兴趣（issue #342）：`preference_prompt_payload()` 门面统一剔除只增不减的 `archived_interests` 台账，五个偏好 prompt builder 与 `build_cognition_profile_view_v1` 的 legacy / compact-v1 两条视图都不再输出它；持久化存储不变，偏好分析器仍从库内做归档别名去重与证据驱动复燃，无台账输入的 prompt 逐字节不变。5,000 条台账与空台账的 compact 提示词字节一致，账号变老不再推高每次 awareness/confusion 调用的输入 token。
+- （2026-11-04）修复「喜欢的题材被当成不喜欢」的避雷粒度根因：偏好分析 prompt 不再把负向证据强制导向 `disliked_topics`（删掉「只能用于 disliked_topics」与「负向优先级最高、不能被 signal_strength 抵消」两条），改为中立的证据粒度契约——负向证据说明的是「这一次」而不是「这个题材」，单条事件不许命名比它更宽的类别，标题恰好是类别词时仍只代表这一条内容，正负冲突时取更近的一次；推荐出口的子串匹配同步加粒度闸，只对 ≥4 字符或带限定词的短语级避雷词生效，2–3 字裸类别词按结构化 topic 精确匹配。真实事故链：一条标题就叫《科普》的视频被点踩一次 → 画像写入 `disliked_topics: ["科普"]` → 缓存出口删掉 198 行，包含同一画像里仍是兴趣的「天文科普 / 健康科普」，封杀后 240 条推荐里 0 条科普；修复后同一份本地快照的删除量 235 → 10，科普 / 崩坏 / 综艺 归零，同时保留「运动康复」「五分钟讲清式内容」这类短语级过滤。
+- 抖音账号结果增加后端防污染校验：明确回报 DOM 回退或带记录但零 API 时，拒绝 staging/入库并标记任务失败，防止并存旧扩展把推荐卡片当作账号记录。正式 18420 已移植 Codex JSON 兼容修复并恢复 7 条有效关注对应的画像持久化；常用 Chrome 更新及验证码/403 复测仍待完成，见 验证记录。
+- Docker 首次认证同步到快速开始、Compose 注释和 bootstrap 等待扩展提示；容器内设置密码、重启后 Web 登录与扩展设备配对，再继续初始化。
+- 修复抖音账号初始化采集：本人 `profile/self` 补齐网页端参数，喜欢 / 收藏 / 关注更正为 `favorite` GET / `listcollection` POST / `following/list` GET，并修复分类与分页。个人记录只返回本人 API 数据，正常空列表不再被推荐卡片补满；API 降级仅保留有效 partial，避免错误行为污染画像。缺失 / 错误列表与零页响应不伪报空；默认 300 条任务额度保留。补充请求、分页、真实 bridge 与四 scope 入口回归；Chrome 实装真实账号复测取得作品 / 收藏 / 喜欢 / 关注 23 / 4 / 7 / 8 条并落库 42 条对应事件，第二页注入断网保留真实首屏 18 条且不重复导入。追加正式 18420 服务复测保留 7 条有效关注，完整画像链路受抖音 403 与原模型 429 阻塞。另用 Codex 订阅 `gpt-6.1-sol` 真实复测，修复后成功分析同批 7 条记录；确认正式 0.3.230 需补齐 #334 的 JSON 传输兼容，未切换正式 worker 或写回画像。本地实现未发布，范围与限制见 验证记录。
+
+## v0.3.234：移除本地模型支持（Ollama 聊天 + 本地 embedding）（2026-11-05）
+
 
 > 破坏性变更。本版本不再内置任何本地推理运行时，聊天与 embedding 全部走远程 API（OpenAI / Claude / Gemini / DeepSeek / OpenRouter / OrcaRouter / Requesty / API Route / Cheaper Inference，或任意 OpenAI 兼容自建网关）。
 
-- 认知 prompt 不再重复序列化归档兴趣（issue #342）：`preference_prompt_payload()` 门面统一剔除只增不减的 `archived_interests` 台账，五个偏好 prompt builder 与 `build_cognition_profile_view_v1` 的 legacy / compact-v1 两条视图都不再输出它；持久化存储不变，偏好分析器仍从库内做归档别名去重与证据驱动复燃，无台账输入的 prompt 逐字节不变。5,000 条台账与空台账的 compact 提示词字节一致，账号变老不再推高每次 awareness/confusion 调用的输入 token。
 
 - 删除四个本地运行时模块：`llm/ollama_provider.py`（`OllamaProvider` + `OllamaEmbeddingProvider`）、`llm/ollama_diagnostics.py`、`llm/ollama_embedding_runtime.py`、`runtime/ollama_supervisor.py`（托管进程、健康探测、模型路径编码修复、CPU 回退判定全部移除）；`runtime/embedding_progress.py`、`runtime/embedding_seed.py` 一并删除。
 
@@ -34,11 +43,7 @@
 
 ## v0.3.233：画像时间溯源与 ChatGPT 订阅修复（2026-10-30）
 
-- （2026-11-04）修复「喜欢的题材被当成不喜欢」的避雷粒度根因：偏好分析 prompt 不再把负向证据强制导向 `disliked_topics`（删掉「只能用于 disliked_topics」与「负向优先级最高、不能被 signal_strength 抵消」两条），改为中立的证据粒度契约——负向证据说明的是「这一次」而不是「这个题材」，单条事件不许命名比它更宽的类别，标题恰好是类别词时仍只代表这一条内容，正负冲突时取更近的一次；推荐出口的子串匹配同步加粒度闸，只对 ≥4 字符或带限定词的短语级避雷词生效，2–3 字裸类别词按结构化 topic 精确匹配。真实事故链：一条标题就叫《科普》的视频被点踩一次 → 画像写入 `disliked_topics: ["科普"]` → 缓存出口删掉 198 行，包含同一画像里仍是兴趣的「天文科普 / 健康科普」，封杀后 240 条推荐里 0 条科普；修复后同一份本地快照的删除量 235 → 10，科普 / 崩坏 / 综艺 归零，同时保留「运动康复」「五分钟讲清式内容」这类短语级过滤。
-- 抖音账号结果增加后端防污染校验：明确回报 DOM 回退或带记录但零 API 时，拒绝 staging/入库并标记任务失败，防止并存旧扩展把推荐卡片当作账号记录。正式 18420 已移植 Codex JSON 兼容修复并恢复 7 条有效关注对应的画像持久化；常用 Chrome 更新及验证码/403 复测仍待完成，见 验证记录。
-- Docker 首次认证同步到快速开始、Compose 注释和 bootstrap 等待扩展提示；容器内设置密码、重启后 Web 登录与扩展设备配对，再继续初始化。
 
-- 修复抖音账号初始化采集：本人 `profile/self` 补齐网页端参数，喜欢 / 收藏 / 关注更正为 `favorite` GET / `listcollection` POST / `following/list` GET，并修复分类与分页。个人记录只返回本人 API 数据，正常空列表不再被推荐卡片补满；API 降级仅保留有效 partial，避免错误行为污染画像。缺失 / 错误列表与零页响应不伪报空；默认 300 条任务额度保留。补充请求、分页、真实 bridge 与四 scope 入口回归；Chrome 实装真实账号复测取得作品 / 收藏 / 喜欢 / 关注 23 / 4 / 7 / 8 条并落库 42 条对应事件，第二页注入断网保留真实首屏 18 条且不重复导入。追加正式 18420 服务复测保留 7 条有效关注，完整画像链路受抖音 403 与原模型 429 阻塞。另用 Codex 订阅 `gpt-6.1-sol` 真实复测，修复后成功分析同批 7 条记录；确认正式 0.3.230 需补齐 #334 的 JSON 传输兼容，未切换正式 worker 或写回画像。本地实现未发布，范围与限制见 验证记录。
 
 - 修复画像把「账号导入」读成「用户行为」的根因（假时间 + 存量当行为）：B 站三条账号同步路径补齐真实时间——`get_following` 解析 `/x/relation/followings` 的 `mtime`，历史 `view_at`、收藏 `fav_time` 镜像进 canonical `metadata.timestamp`，CLI guided init 采集同样保留；首次同步给事件标 `snapshot`。本机账本实测 89,866 条观看只落在 950 个 `created_at` 秒、2,429 条关注只落在 93 个秒，正是「同一秒关注四十多人」的来源。新增 `soul/event_provenance.py` 在 prompt 边界统一投影：`created_at` 不再进入模型（只认 `metadata.timestamp`），存量关注聚合成一行「导入存量：关注了 N 位创作者（时间区间）」，无时间事件标 `time_quality=ingest`。偏好 / 觉察 / 灵魂画像 / 洞察四条 prompt 同步加规则：不得用库存推断外向、EI 只认用户自己的表达、MBTI 不得当 insight 证据；`ProfileBuilder` 对 MBTI 输出做 pole 校验、type 与维度一致性重算，任一维度 strength < 0.60 时把 confidence 压到 0.55。偏好 / 觉察两条 prompt 的用户消息渲染 golden 随之重新采样，并在测试里注明是显式的契约变更。
 

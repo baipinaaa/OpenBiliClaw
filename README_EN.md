@@ -233,7 +233,7 @@ After starting the backend, open `http://127.0.0.1:8420/web` (or just `http://12
 
 ## Recent Updates
 
-📌 Latest: **v0.3.234 (2026-11-05)**
+📌 Latest: **v0.3.235 (2026-11-05)**
 
 - **More trustworthy portraits**: Bilibili history, favorites and follows carry real interaction times; imported backlog is no longer read as your behaviour, and library volume can no longer infer personality.
 - **Cleaner interests**: a new "using tools ≠ taste" gate keeps ops-style topics from becoming interests (14 compound topics filtered in a real rebuild, while "software testing" stayed).
