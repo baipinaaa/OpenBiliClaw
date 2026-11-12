@@ -5545,7 +5545,7 @@ class TestBackendAPI:
 
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
-            base_url="http://testserver",
+            base_url="http://127.0.0.1:8420",
         ) as client:
             first = asyncio.create_task(
                 client.post(
@@ -5612,8 +5612,8 @@ class TestBackendAPI:
             json={"platforms": ["douyin"], "actions": {"douyin": ["snapshot"]}},
         )
 
-        assert response.status_code == 403
-        assert response.json()["detail"] == "local_only"
+        assert response.status_code == 401
+        assert response.json()["error"] == "auth_setup_required"
 
     def test_extension_e2e_result_rejects_remote_clients_with_valid_payload(self) -> None:
         from fastapi.testclient import TestClient
@@ -5642,8 +5642,8 @@ class TestBackendAPI:
             },
         )
 
-        assert response.status_code == 403
-        assert response.json()["detail"] == "local_only"
+        assert response.status_code == 401
+        assert response.json()["error"] == "auth_setup_required"
 
     def test_extension_e2e_rejects_unknown_platform_via_schema(self) -> None:
         from fastapi.testclient import TestClient
@@ -7775,7 +7775,7 @@ class TestBackendAPI:
         # Share pytest's running event loop with the fire-and-forget publisher;
         # a request-scoped TestClient portal cancels it when the response ends.
         async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
+            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8420"
         ) as client:
             response = await client.post(
                 "/api/recommendations/append",

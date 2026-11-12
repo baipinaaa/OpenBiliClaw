@@ -86,6 +86,8 @@ def test_startup_env_snapshot_is_idempotent(monkeypatch: pytest.MonkeyPatch) -> 
     guards.snapshot_startup_env()
 
     assert "OPENBILICLAW_FULL_WORKER" not in guards._startup_env_keys
+
+
 def test_autostart_shadowed_detects_config_local_override(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
